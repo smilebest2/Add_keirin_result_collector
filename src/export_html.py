@@ -34,7 +34,11 @@ def fetch_races(conn, race_date: str | None = None):
         params.append(race_date)
     return conn.execute(
         f"""
-        SELECT race_id, race_date, venue, race_no, start_time, detail_url
+        SELECT
+            race_id, race_date, venue, race_no, event_name, race_title,
+            race_class, start_time, deadline_time, status, distance, laps,
+            weather, temperature, wind_direction, wind_speed, lineup_text,
+            race_comment, detail_url
         FROM race_master
         {where}
         ORDER BY race_date DESC, venue ASC, race_no ASC
@@ -46,7 +50,9 @@ def fetch_races(conn, race_date: str | None = None):
 def fetch_results(conn, race_id: str):
     return conn.execute(
         """
-        SELECT rank, car_no, racer_name, class, prefecture, age, time, kimarite
+        SELECT
+            rank, car_no, racer_name, class, prefecture, age, term,
+            margin, time, kimarite, start_mark, back_mark
         FROM race_result
         WHERE race_id = ?
         ORDER BY rank ASC
@@ -58,7 +64,7 @@ def fetch_results(conn, race_id: str):
 def fetch_payouts(conn, race_id: str):
     return conn.execute(
         """
-        SELECT bet_type, combination, payout
+        SELECT bet_type, combination, payout, popularity
         FROM payout
         WHERE race_id = ?
         ORDER BY id ASC
@@ -77,6 +83,27 @@ def render_index(conn, race_date: str | None = None) -> str:
     for race in races:
         results = fetch_results(conn, race["race_id"])
         payouts = fetch_payouts(conn, race["race_id"])
+        meta_items = [
+            ("発走", race["start_time"]),
+            ("締切", race["deadline_time"]),
+            ("区分", race["race_class"]),
+            ("距離", f'{race["distance"]}m' if race["distance"] else None),
+            ("周回", f'{race["laps"]}周' if race["laps"] else None),
+            ("天候", race["weather"]),
+            ("気温", f'{race["temperature"]}℃' if race["temperature"] is not None else None),
+            (
+                "風",
+                f'{race["wind_direction"] or ""} {race["wind_speed"]}m/s'.strip()
+                if race["wind_speed"] is not None
+                else None,
+            ),
+            ("並び", race["lineup_text"]),
+        ]
+        meta_html = "".join(
+            f'<span><b>{h(label)}</b>{h(value)}</span>'
+            for label, value in meta_items
+            if value not in (None, "")
+        )
         result_rows = "\n".join(
             f"""
             <tr>
@@ -86,8 +113,12 @@ def render_index(conn, race_date: str | None = None) -> str:
               <td>{h(row["class"])}</td>
               <td>{h(row["prefecture"])}</td>
               <td>{h(row["age"])}</td>
+              <td>{h(row["term"])}</td>
+              <td>{h(row["margin"])}</td>
               <td>{h(row["time"])}</td>
               <td>{h(row["kimarite"])}</td>
+              <td>{h(row["start_mark"])}</td>
+              <td>{h(row["back_mark"])}</td>
             </tr>
             """
             for row in results
@@ -98,6 +129,7 @@ def render_index(conn, race_date: str | None = None) -> str:
               <td>{h(row["bet_type"])}</td>
               <td>{h(row["combination"])}</td>
               <td>{h(f'{row["payout"]:,}円')}</td>
+              <td>{h(row["popularity"])}</td>
             </tr>
             """
             for row in payouts
@@ -108,7 +140,8 @@ def render_index(conn, race_date: str | None = None) -> str:
               <header class="race-header">
                 <div>
                   <h2>{h(race["venue"])} {h(race["race_no"])}R</h2>
-                  <p>{h(race["race_id"])}{h(" / 発走 " + race["start_time"] if race["start_time"] else "")}</p>
+                  <p>{h(race["race_id"])}{h(" / " + race["race_title"] if race["race_title"] else "")}</p>
+                  <div class="race-meta">{meta_html}</div>
                 </div>
                 <a href="{h(race["detail_url"])}" target="_blank" rel="noreferrer">詳細</a>
               </header>
@@ -119,7 +152,8 @@ def render_index(conn, race_date: str | None = None) -> str:
                     <thead>
                       <tr>
                         <th>着</th><th>車</th><th>選手名</th><th>級班</th>
-                        <th>府県</th><th>年齢</th><th>上り</th><th>決</th>
+                        <th>府県</th><th>年齢</th><th>期</th><th>着差</th>
+                        <th>上り</th><th>決</th><th>S</th><th>B</th>
                       </tr>
                     </thead>
                     <tbody>{result_rows}</tbody>
@@ -128,11 +162,12 @@ def render_index(conn, race_date: str | None = None) -> str:
                 <div>
                   <h3>払戻</h3>
                   <table>
-                    <thead><tr><th>賭式</th><th>組番</th><th>払戻</th></tr></thead>
+                    <thead><tr><th>賭式</th><th>組番</th><th>払戻</th><th>人気</th></tr></thead>
                     <tbody>{payout_rows}</tbody>
                   </table>
                 </div>
               </div>
+              {f'<p class="race-comment">{h(race["race_comment"])}</p>' if race["race_comment"] else ""}
             </section>
             """
         )
@@ -265,6 +300,18 @@ def render_index(conn, race_date: str | None = None) -> str:
       color: var(--muted);
       font-size: 12px;
     }}
+    .race-meta {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 12px;
+      margin-top: 8px;
+      color: var(--ink);
+      font-size: 12px;
+    }}
+    .race-meta b {{
+      margin-right: 4px;
+      color: var(--muted);
+    }}
     .race-header a {{
       color: var(--accent);
       font-weight: 700;
@@ -276,6 +323,12 @@ def render_index(conn, race_date: str | None = None) -> str:
       grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
       gap: 16px;
       padding: 16px;
+    }}
+    .race-comment {{
+      margin: 0;
+      padding: 0 16px 16px;
+      color: var(--muted);
+      font-size: 13px;
     }}
     h3 {{
       margin: 0 0 8px;

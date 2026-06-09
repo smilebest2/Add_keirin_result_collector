@@ -11,6 +11,11 @@ from .config import BASE_URL, VENUE_CODES
 DETAIL_RE = re.compile(r"/keirin/[^/]+/raceresult/(\d{10})/(\d+)/(\d+)")
 DATE_RE = re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})日")
 START_TIME_RE = re.compile(r"発走\s*(\d{1,2}:\d{2})")
+DEADLINE_TIME_RE = re.compile(r"締切\s*(\d{1,2}:\d{2})")
+DISTANCE_RE = re.compile(r"([\d,]+)m")
+LAPS_RE = re.compile(r"\((\d+)周\)")
+TEMPERATURE_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*℃")
+WIND_SPEED_RE = re.compile(r"(-?\d+(?:\.\d+)?)m/s")
 RACE_NO_RE = re.compile(r"/(\d+)$")
 RACER_RE = re.compile(
     r"(?P<name>[^\s]+)\s+(?P<prefecture>[^\s]+)\s+(?P<class>[ASL]\d?)\s+"
@@ -75,6 +80,9 @@ def extract_race_meta(html: str, detail_url: str) -> dict:
 
     race_date = parse_japanese_date(page_text)
     start_time = parse_start_time(page_text)
+    deadline_time = parse_deadline_time(page_text)
+    race_conditions = extract_race_conditions(soup)
+    lineup = extract_lineup(html)
     venue = _extract_venue(soup, page_text)
     race_no = int(url_match.group(3))
     race_id = build_race_id(race_date, venue, race_no, detail_url)
@@ -84,7 +92,21 @@ def extract_race_meta(html: str, detail_url: str) -> dict:
         "race_date": race_date,
         "venue": venue,
         "race_no": race_no,
+        "event_name": race_conditions.get("event_name"),
+        "race_title": race_conditions.get("race_title"),
+        "race_class": race_conditions.get("race_class"),
         "start_time": start_time,
+        "deadline_time": deadline_time,
+        "status": race_conditions.get("status"),
+        "distance": race_conditions.get("distance"),
+        "laps": race_conditions.get("laps"),
+        "weather": race_conditions.get("weather"),
+        "temperature": race_conditions.get("temperature"),
+        "wind_direction": race_conditions.get("wind_direction"),
+        "wind_speed": race_conditions.get("wind_speed"),
+        "lineup_text": lineup.get("lineup_text"),
+        "lineup": lineup.get("lineup"),
+        "race_comment": race_conditions.get("race_comment"),
         "detail_url": detail_url,
     }
 
@@ -94,6 +116,70 @@ def parse_start_time(text: str) -> str | None:
     if not match:
         return None
     return match.group(1)
+
+
+def parse_deadline_time(text: str) -> str | None:
+    match = DEADLINE_TIME_RE.search(text)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def extract_race_conditions(soup: BeautifulSoup) -> dict:
+    texts = [normalize_text(text) for text in soup.stripped_strings]
+    data = {
+        "event_name": _extract_event_name(texts),
+        "race_title": _extract_race_title(texts),
+        "race_class": _extract_race_class(texts),
+        "status": "終了" if "終了" in texts else None,
+        "distance": _extract_distance(texts),
+        "laps": _extract_laps(texts),
+        "weather": _extract_weather(texts),
+        "temperature": _extract_temperature(texts),
+        "wind_direction": _extract_wind_direction(texts),
+        "wind_speed": _extract_wind_speed(texts),
+        "race_comment": _extract_race_comment(texts),
+    }
+    return data
+
+
+def extract_lineup(html: str) -> dict:
+    soup = soup_from_html(html)
+    texts = [normalize_text(text) for text in soup.stripped_strings]
+    lineup_tokens: list[str] = []
+    try:
+        start = texts.index("左矢印") + 1
+    except ValueError:
+        return {"lineup_text": None, "lineup": []}
+
+    for text in texts[start:]:
+        if text in {"着順・払戻金", "レース後コメント"}:
+            break
+        if re.fullmatch(r"\d+", text) or text == "区切り":
+            lineup_tokens.append(text)
+
+    lineup: list[dict] = []
+    groups: list[list[int]] = [[]]
+    for token in lineup_tokens:
+        if token == "区切り":
+            if groups[-1]:
+                groups.append([])
+            continue
+        groups[-1].append(int(token))
+
+    groups = [group for group in groups if group]
+    for line_index, group in enumerate(groups, start=1):
+        for position, car_no in enumerate(group, start=1):
+            lineup.append(
+                {
+                    "car_no": car_no,
+                    "line_no": line_index,
+                    "line_position": position,
+                }
+            )
+
+    lineup_text = " / ".join(" ".join(str(car_no) for car_no in group) for group in groups)
+    return {"lineup_text": lineup_text or None, "lineup": lineup}
 
 
 def build_race_id(race_date: str | None, venue: str | None, race_no: int, detail_url: str) -> str:
@@ -196,6 +282,88 @@ def _extract_venue(soup: BeautifulSoup, page_text: str) -> str | None:
     return None
 
 
+def _extract_event_name(texts: list[str]) -> str | None:
+    for text in texts:
+        match = re.search(r"(.+競輪)\s+(?:[FG]\d|ミッドナイト|ナイター)?\s*(.+日)\s+\d+R\s+結果", text)
+        if match:
+            return normalize_text(f"{match.group(1)} {match.group(2)}")
+    return None
+
+
+def _extract_race_title(texts: list[str]) -> str | None:
+    for index, text in enumerate(texts):
+        if text == "R" and index + 1 < len(texts) and not texts[index + 1].startswith("A級"):
+            return texts[index + 1]
+    return None
+
+
+def _extract_race_class(texts: list[str]) -> str | None:
+    for text in texts:
+        if re.fullmatch(r"[ASL]級\S+", text):
+            return text
+    return None
+
+
+def _extract_distance(texts: list[str]) -> int | None:
+    for text in texts:
+        match = DISTANCE_RE.fullmatch(text)
+        if match:
+            return int(match.group(1).replace(",", ""))
+    return None
+
+
+def _extract_laps(texts: list[str]) -> int | None:
+    for text in texts:
+        match = LAPS_RE.fullmatch(text)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _extract_weather(texts: list[str]) -> str | None:
+    for index, text in enumerate(texts):
+        if LAPS_RE.fullmatch(text) and index + 1 < len(texts):
+            return texts[index + 1]
+    return None
+
+
+def _extract_temperature(texts: list[str]) -> float | None:
+    for index, text in enumerate(texts):
+        if text == "℃" and index > 0:
+            try:
+                return float(texts[index - 1])
+            except ValueError:
+                return None
+        match = TEMPERATURE_RE.fullmatch(text)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _extract_wind_speed(texts: list[str]) -> float | None:
+    for text in texts:
+        match = WIND_SPEED_RE.fullmatch(text)
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def _extract_wind_direction(texts: list[str]) -> str | None:
+    for index, text in enumerate(texts):
+        if WIND_SPEED_RE.fullmatch(text) and index > 0:
+            return texts[index - 1]
+    return None
+
+
+def _extract_race_comment(texts: list[str]) -> str | None:
+    for index, text in enumerate(texts):
+        if re.search(r"\d+R\s+結果$", text) and index + 1 < len(texts):
+            comment = texts[index + 1]
+            if len(comment) > 20:
+                return re.split(r"\s*なお、WINTICKET", comment, maxsplit=1)[0].strip()
+    return None
+
+
 def _extract_result_rows_from_tables(soup: BeautifulSoup) -> list[dict]:
     results: list[dict] = []
     for row in soup.select("tr"):
@@ -206,9 +374,12 @@ def _extract_result_rows_from_tables(soup: BeautifulSoup) -> list[dict]:
         if not racer_link:
             continue
         racer_name = normalize_text(racer_link.get_text(" ", strip=True))
-        prefecture, racer_class, age = _parse_player_meta(cells, racer_name)
+        prefecture, racer_class, age, term = _parse_player_meta(cells, racer_name)
         time_value = next((cell for cell in cells[4:] if re.fullmatch(r"\d{1,2}\.\d", cell)), None)
         kimarite = next((cell for cell in cells[4:] if re.fullmatch(r"(逃|捲|差|マ)", cell)), None)
+        margin = cells[3] if len(cells) > 3 and cells[3] else None
+        start_mark = "S" if len(cells) > 6 and "S" in cells[6] else None
+        back_mark = "B" if len(cells) > 6 and "B" in cells[6] else None
         results.append(
             {
                 "rank": int(cells[0]),
@@ -217,8 +388,12 @@ def _extract_result_rows_from_tables(soup: BeautifulSoup) -> list[dict]:
                 "class": racer_class,
                 "prefecture": prefecture,
                 "age": age,
+                "term": term,
+                "margin": margin,
                 "time": time_value,
                 "kimarite": kimarite,
+                "start_mark": start_mark,
+                "back_mark": back_mark,
             }
         )
     return results
@@ -248,28 +423,38 @@ def _extract_payout_rows_from_tables(soup: BeautifulSoup) -> list[dict]:
     return payouts
 
 
-def _parse_player_meta(cells: list[str], racer_name: str) -> tuple[str | None, str | None, int | None]:
+def _parse_player_meta(
+    cells: list[str],
+    racer_name: str,
+) -> tuple[str | None, str | None, int | None, int | None]:
     for cell in cells:
         meta_text = cell.replace(racer_name, "", 1).strip()
-        meta_match = re.search(r"(?P<prefecture>\S+)\s+(?P<class>[ASL]\d?)\s+(?P<age>\d{1,2})歳", meta_text)
+        meta_match = re.search(
+            r"(?P<prefecture>\S+)\s+(?P<class>[ASL]\d?)\s+"
+            r"(?P<age>\d{1,2})歳\s+(?P<term>\d+)期",
+            meta_text,
+        )
         if meta_match:
             return (
                 meta_match.group("prefecture"),
                 meta_match.group("class"),
                 int(meta_match.group("age")),
+                int(meta_match.group("term")),
             )
-    return None, None, None
+    return None, None, None, None
 
 
 def _parse_payout_cells(bet_type: str, cells: list[str]) -> dict | None:
     combination = next((cell for cell in cells if re.fullmatch(r"\d+(?:[=\-]\d+)+", cell)), None)
     payout_text = next((cell for cell in cells if re.fullmatch(r"[\d,]+\s*円?", cell)), None)
+    popularity_text = next((cell for cell in cells if re.fullmatch(r"\(\d+\)", cell)), None)
     if not combination or not payout_text:
         return None
     return {
         "bet_type": bet_type,
         "combination": combination,
         "payout": int(re.sub(r"\D", "", payout_text)),
+        "popularity": int(re.sub(r"\D", "", popularity_text)) if popularity_text else None,
     }
 
 
