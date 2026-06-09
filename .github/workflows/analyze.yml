@@ -1,0 +1,31 @@
+name: Analyze Keirin Results
+
+on:
+  schedule:
+    - cron: "10 15 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate analytics pages
+        run: python -m src.analysis
+
+      - name: Commit analytics pages
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update keirin analytics pages"
+          file_pattern: docs/*.html docs/.nojekyll
