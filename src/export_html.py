@@ -110,7 +110,7 @@ def render_index(conn, race_date: str | None = None) -> str:
                   <h2>{h(race["venue"])} {h(race["race_no"])}R</h2>
                   <p>{h(race["race_id"])}</p>
                 </div>
-                <a href="{h(race["detail_url"])}" target="_blank" rel="noreferrer">WINTICKET</a>
+                <a href="{h(race["detail_url"])}" target="_blank" rel="noreferrer">詳細</a>
               </header>
               <div class="tables">
                 <div>
