@@ -34,7 +34,7 @@ def fetch_races(conn, race_date: str | None = None):
         params.append(race_date)
     return conn.execute(
         f"""
-        SELECT race_id, race_date, venue, race_no, detail_url
+        SELECT race_id, race_date, venue, race_no, start_time, detail_url
         FROM race_master
         {where}
         ORDER BY race_date DESC, venue ASC, race_no ASC
@@ -108,7 +108,7 @@ def render_index(conn, race_date: str | None = None) -> str:
               <header class="race-header">
                 <div>
                   <h2>{h(race["venue"])} {h(race["race_no"])}R</h2>
-                  <p>{h(race["race_id"])}</p>
+                  <p>{h(race["race_id"])}{h(" / 発走 " + race["start_time"] if race["start_time"] else "")}</p>
                 </div>
                 <a href="{h(race["detail_url"])}" target="_blank" rel="noreferrer">詳細</a>
               </header>

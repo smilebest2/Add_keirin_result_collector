@@ -10,6 +10,7 @@ from .config import BASE_URL, VENUE_CODES
 
 DETAIL_RE = re.compile(r"/keirin/[^/]+/raceresult/(\d{10})/(\d+)/(\d+)")
 DATE_RE = re.compile(r"(\d{4})年(\d{1,2})月(\d{1,2})日")
+START_TIME_RE = re.compile(r"発走\s*(\d{1,2}:\d{2})")
 RACE_NO_RE = re.compile(r"/(\d+)$")
 RACER_RE = re.compile(
     r"(?P<name>[^\s]+)\s+(?P<prefecture>[^\s]+)\s+(?P<class>[ASL]\d?)\s+"
@@ -73,6 +74,7 @@ def extract_race_meta(html: str, detail_url: str) -> dict:
         raise ValueError(f"Unsupported detail URL: {detail_url}")
 
     race_date = parse_japanese_date(page_text)
+    start_time = parse_start_time(page_text)
     venue = _extract_venue(soup, page_text)
     race_no = int(url_match.group(3))
     race_id = build_race_id(race_date, venue, race_no, detail_url)
@@ -82,8 +84,16 @@ def extract_race_meta(html: str, detail_url: str) -> dict:
         "race_date": race_date,
         "venue": venue,
         "race_no": race_no,
+        "start_time": start_time,
         "detail_url": detail_url,
     }
+
+
+def parse_start_time(text: str) -> str | None:
+    match = START_TIME_RE.search(text)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def build_race_id(race_date: str | None, venue: str | None, race_no: int, detail_url: str) -> str:

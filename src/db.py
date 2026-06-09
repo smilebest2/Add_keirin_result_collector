@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS race_master (
     race_date TEXT,
     venue TEXT,
     race_no INTEGER,
+    start_time TEXT,
     detail_url TEXT,
     created_at TEXT
 );
@@ -54,7 +55,14 @@ def connect(db_path: Path = DB_PATH):
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    ensure_column(conn, "race_master", "start_time", "TEXT")
     conn.commit()
+
+
+def ensure_column(conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
+    columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_type}")
 
 
 def race_exists(conn: sqlite3.Connection, race_id: str) -> bool:
@@ -71,14 +79,15 @@ def save_race(conn: sqlite3.Connection, race: dict, results: list[dict], payouts
         conn.execute(
             """
             INSERT INTO race_master
-                (race_id, race_date, venue, race_no, detail_url, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (race_id, race_date, venue, race_no, start_time, detail_url, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 race["race_id"],
                 race["race_date"],
                 race["venue"],
                 race["race_no"],
+                race.get("start_time"),
                 race["detail_url"],
                 now,
             ),
