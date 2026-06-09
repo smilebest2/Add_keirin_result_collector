@@ -137,6 +137,13 @@ def render_index(conn, race_date: str | None = None) -> str:
             """
         )
 
+    race_content = "".join(race_cards) if race_cards else """
+      <section class="empty">
+        <h2>表示できるレース結果はまだありません</h2>
+        <p>次回の自動取得後にここへ結果が表示されます。</p>
+      </section>
+    """
+
     return f"""<!doctype html>
 <html lang="ja">
 <head>
@@ -223,6 +230,22 @@ def render_index(conn, race_date: str | None = None) -> str:
       margin-bottom: 14px;
       overflow: hidden;
     }}
+    .empty {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+      text-align: center;
+    }}
+    .empty h2 {{
+      margin: 0 0 6px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }}
+    .empty p {{
+      margin: 0;
+      color: var(--muted);
+    }}
     .race-header {{
       display: flex;
       justify-content: space-between;
@@ -287,7 +310,7 @@ def render_index(conn, race_date: str | None = None) -> str:
     <div class="wrap">
       <h1>競輪レース結果</h1>
       <div class="summary">
-        <div class="metric"><span>表示日</span><strong>{h(selected_date)}</strong></div>
+        <div class="metric"><span>表示日</span><strong>{h(selected_date or "-")}</strong></div>
         <div class="metric"><span>累計レース</span><strong>{h(summary["races"])}</strong></div>
         <div class="metric"><span>選手結果</span><strong>{h(summary["results"])}</strong></div>
         <div class="metric"><span>払戻</span><strong>{h(summary["payouts"])}</strong></div>
@@ -300,7 +323,7 @@ def render_index(conn, race_date: str | None = None) -> str:
         <span>{h(len(races))}レース / generated at {h(generated_at)}</span>
         <input id="filter" type="search" placeholder="会場名で絞り込み">
       </div>
-      {"".join(race_cards)}
+      {race_content}
     </div>
   </main>
   <script>
