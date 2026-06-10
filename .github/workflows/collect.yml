@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   collect:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout
