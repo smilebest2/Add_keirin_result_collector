@@ -1,5 +1,6 @@
 import argparse
 import html
+import re
 import statistics
 from collections import defaultdict
 from datetime import datetime
@@ -21,6 +22,12 @@ def h(value) -> str:
 def yen(value) -> str:
     if value is None:
         return ""
+    if isinstance(value, str):
+        if value.endswith("円"):
+            return value
+        value = re.sub(r"[^\d-]", "", value)
+        if not value:
+            return ""
     return f"{int(value):,}円"
 
 
@@ -357,7 +364,7 @@ def render_payouts(conn) -> str:
         ORDER BY p.payout DESC
         LIMIT 100
     """)
-    tickets = [row for row in high if row["payout"] and row["payout"] >= 10000]
+    tickets = [row.copy() for row in high if row["payout"] and row["payout"] >= 10000]
     monthly = rows(conn, """
         SELECT CAST(strftime('%m', race_date) AS INTEGER) AS month,
                ROUND(AVG(p.payout), 0) AS avg_payout
