@@ -283,6 +283,30 @@ def page(title: str, active: str, body: str) -> str:
       border-top: 1px solid var(--line);
       font-size: 13px;
     }}
+    .actions {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 14px 15px 16px;
+    }}
+    .action-button {{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      border-radius: 8px;
+      border: 1px solid var(--accent);
+      background: var(--accent);
+      color: #ffffff;
+      padding: 8px 12px;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 700;
+    }}
+    .action-button.secondary {{
+      border-color: #b91c1c;
+      background: #b91c1c;
+    }}
     @media (max-width: 780px) {{
       .grid, .grid.two {{ grid-template-columns: repeat(2, minmax(120px, 1fr)); }}
       section {{ overflow-x: auto; }}
@@ -462,6 +486,12 @@ def render_top(conn) -> str:
       <div class="card"><span>最終保存日時</span><strong>{h(s["latest_created"] or "-")}</strong></div>
     </div>
     """
+    body += section("運用操作", """
+      <div class="actions">
+        <a class="action-button" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/collect.yml">手動で取得する</a>
+        <a class="action-button secondary" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/reset-data.yml">取得データを削除する</a>
+      </div>
+    """, "ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日23:40 JSTです。")
     body += '<div class="grid two">'
     body += section("日別取得レース数", bar_chart(daily_chart, "race_date", "races", lambda v: f"{int(v)}R", 30))
     body += section("月別3連単平均配当", bar_chart(list(reversed(monthly)), "month", "avg_payout", yen, 12))

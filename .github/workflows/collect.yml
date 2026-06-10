@@ -1,11 +1,8 @@
 name: Collect Keirin Results
 
 on:
-  push:
-    branches:
-      - main
   schedule:
-    - cron: "50 14 * * *"
+    - cron: "40 14 * * *"
   workflow_dispatch:
 
 permissions:
@@ -13,8 +10,11 @@ permissions:
 
 jobs:
   collect:
-    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    concurrency:
+      group: collect-keirin-results
+      cancel-in-progress: false
 
     steps:
       - name: Checkout
@@ -30,10 +30,6 @@ jobs:
 
       - name: Install Playwright browser
         run: python -m playwright install --with-deps chromium
-
-      - name: Wait 5 minutes after push
-        if: github.event_name == 'push'
-        run: sleep 300
 
       - name: Collect results
         run: python -m src.scraper
