@@ -4,6 +4,8 @@ from datetime import date, datetime
 from time import sleep
 
 import requests
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 from .config import HEADERS, LOG_DIR, REQUEST_RETRY, REQUEST_TIMEOUT, RESULTS_URL
 from .db import connect, init_db, race_exists, save_race
@@ -40,12 +42,41 @@ def fetch_html(url: str, retry: int = REQUEST_RETRY) -> str:
     raise RuntimeError(f"Failed to fetch {url}") from last_error
 
 
+def fetch_rendered_html(url: str, output_path, retry: int = REQUEST_RETRY) -> str:
+    last_error = None
+    for attempt in range(1, retry + 1):
+        try:
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
+                page = browser.new_page(
+                    user_agent=HEADERS["User-Agent"],
+                    viewport={"width": 1366, "height": 900},
+                )
+                page.goto(url, wait_until="networkidle", timeout=REQUEST_TIMEOUT * 1000)
+                try:
+                    page.wait_for_selector('a[href*="/raceresult/"]', timeout=10_000)
+                except PlaywrightTimeoutError:
+                    logging.warning("Rendered result links were not visible yet: %s", url)
+                html = page.content()
+                browser.close()
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(html, encoding="utf-8")
+            return html
+        except Exception as exc:
+            last_error = exc
+            logging.warning("Rendered fetch failed (%s/%s): %s", attempt, retry, url)
+            sleep(attempt)
+    raise RuntimeError(f"Failed to render {url}") from last_error
+
+
 def collect(target_date: str | None = None) -> dict:
     target_date = target_date or date.today().isoformat()
     logging.info("Collecting keirin results for %s", target_date)
-    list_html = fetch_html(RESULTS_URL)
+    list_html = fetch_rendered_html(RESULTS_URL, LOG_DIR / "results_rendered.html")
     links = extract_result_links(list_html)
     logging.info("Found %s result links", len(links))
+    if not links:
+        raise RuntimeError("No result links were found in rendered results page")
 
     stats = {"found": len(links), "saved": 0, "skipped": 0, "failed": 0}
     with connect() as conn:

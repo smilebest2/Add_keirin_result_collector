@@ -1,6 +1,9 @@
 name: Collect Keirin Results
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "50 14 * * *"
   workflow_dispatch:
@@ -24,6 +27,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Playwright browser
+        run: python -m playwright install --with-deps chromium
+
+      - name: Wait 5 minutes after push
+        if: github.event_name == 'push'
+        run: sleep 300
+
       - name: Collect results
         run: python -m src.scraper
 
@@ -34,4 +44,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Collect keirin race results"
-          file_pattern: data/keirin.db docs/*.html docs/.nojekyll logs/*.log
+          file_pattern: data/keirin.db docs/*.html docs/.nojekyll logs/*.log logs/*.html
