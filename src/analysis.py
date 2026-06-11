@@ -1,5 +1,6 @@
 import argparse
 import html
+import json
 import re
 import statistics
 from collections import defaultdict
@@ -78,6 +79,31 @@ def table(headers: list[str], data: list[dict], fields: list[str], empty="デー
     for row in data:
         body_html += "<tr>" + "".join(f"<td>{h(row.get(field))}</td>" for field in fields) + "</tr>"
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{body_html}</tbody></table>"
+
+
+def rich_table(headers: list[str], data: list[dict], fields: list[str], empty="データがありません") -> str:
+    if not data:
+        return f'<div class="empty">{h(empty)}</div>'
+    header_html = "".join(f"<th>{h(header)}</th>" for header in headers)
+    body_html = ""
+    for row in data:
+        cells = []
+        for field in fields:
+            value = row.get(field, "")
+            cells.append(str(value) if isinstance(value, str) and value.startswith("<a ") else h(value))
+        body_html += "<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
+    return f"<table><thead><tr>{header_html}</tr></thead><tbody>{body_html}</tbody></table>"
+
+
+def race_detail_href(race_id: str | None) -> str:
+    if not race_id:
+        return "races.html"
+    compact_date = str(race_id).split("_", 1)[0]
+    return f"race_detail.html?date={h(compact_date)}&race_id={h(race_id)}"
+
+
+def race_detail_link(race_id: str | None, label: str = "詳細") -> str:
+    return f'<a class="detail-link" href="{race_detail_href(race_id)}">{h(label)}</a>'
 
 
 def section(title: str, html_body: str, intro: str = "") -> str:
@@ -306,6 +332,21 @@ def page(title: str, active: str, body: str) -> str:
     .action-button.secondary {{
       border-color: #b91c1c;
       background: #b91c1c;
+    }}
+    .detail-link {{
+      color: var(--accent-2);
+      font-weight: 700;
+      text-decoration: none;
+    }}
+    .detail-link:hover {{
+      text-decoration: underline;
+    }}
+    .rank-note {{
+      padding: 12px 15px;
+      color: var(--muted);
+      font-size: 13px;
+      background: #fbfcfd;
+      border-bottom: 1px solid var(--line);
     }}
     @media (max-width: 780px) {{
       .grid, .grid.two {{ grid-template-columns: repeat(2, minmax(120px, 1fr)); }}
@@ -961,7 +1002,7 @@ def car_recovery(conn) -> list[dict]:
 
 
 def racer_threshold(conn) -> int:
-    enough = scalar(conn, """
+    enough_30 = scalar(conn, """
         SELECT COUNT(*) FROM (
             SELECT racer_name
             FROM race_result
@@ -969,7 +1010,17 @@ def racer_threshold(conn) -> int:
             HAVING COUNT(*) >= 30
         )
     """)
-    return 30 if enough >= 10 else 3
+    if enough_30 >= 10:
+        return 30
+    enough_3 = scalar(conn, """
+        SELECT COUNT(*) FROM (
+            SELECT racer_name
+            FROM race_result
+            GROUP BY racer_name
+            HAVING COUNT(*) >= 3
+        )
+    """)
+    return 3 if enough_3 >= 10 else 1
 
 
 def growth_index(conn) -> list[dict]:
@@ -1001,8 +1052,410 @@ def growth_index(conn) -> list[dict]:
     return rankings[:100]
 
 
+def custom_race_rows(conn) -> list[dict]:
+    race_rows = rows(conn, """
+        WITH winners AS (
+            SELECT race_id, car_no, racer_name, time
+            FROM (
+                SELECT race_id, car_no, racer_name, time,
+                       ROW_NUMBER() OVER (PARTITION BY race_id ORDER BY id) AS row_no
+                FROM race_result
+                WHERE rank = 1
+            )
+            WHERE row_no = 1
+        ),
+        trifecta AS (
+            SELECT race_id, payout, popularity
+            FROM payout
+            WHERE bet_type = ?
+        ),
+        winner_line AS (
+            SELECT l.race_id, l.car_no, l.line_no, l.line_position
+            FROM race_lineup l
+            JOIN winners w ON w.race_id = l.race_id AND w.car_no = l.car_no
+        )
+        SELECT m.race_id, m.race_date, m.venue, m.race_no, m.race_title,
+               m.start_time, m.weather,
+               CASE WHEN m.wind_speed IS NULL THEN '' ELSE m.wind_speed || 'm/s' END AS wind_speed,
+               w.car_no AS winner_car, w.racer_name AS winner, w.time AS winner_time,
+               t.payout AS trifecta_payout, t.popularity,
+               wl.line_no, wl.line_position,
+               ROUND(
+                   COALESCE(t.payout, 0) / 1000.0
+                   + COALESCE(t.popularity, 0) * 2.0
+                   + CASE WHEN w.car_no >= 6 THEN 12 ELSE 0 END
+                   + CASE WHEN wl.line_position >= 3 THEN 10 ELSE 0 END,
+                   1
+               ) AS surprise_score
+        FROM race_master m
+        LEFT JOIN winners w ON w.race_id = m.race_id
+        LEFT JOIN trifecta t ON t.race_id = m.race_id
+        LEFT JOIN winner_line wl ON wl.race_id = m.race_id
+        ORDER BY surprise_score DESC, t.payout DESC
+        LIMIT 100
+    """, (TRIFECTA,))
+    for row in race_rows:
+        row["detail"] = race_detail_link(row["race_id"])
+        row["trifecta_payout"] = yen(row["trifecta_payout"])
+        row["line_position"] = "" if row["line_position"] is None else row["line_position"]
+        row["popularity"] = "" if row["popularity"] is None else row["popularity"]
+        row["surprise_score"] = decimal(row["surprise_score"], 1)
+    return race_rows
+
+
+def render_custom_v2(conn) -> str:
+    s = summary(conn)
+    min_starts = racer_threshold(conn)
+    target_note = "データが少ない間は参考値です。選手系ランキングは蓄積量に応じて最低出走数を自動調整します。"
+    high_payout_races = scalar(conn, "SELECT COUNT(*) FROM payout WHERE bet_type = ? AND payout >= 10000", (TRIFECTA,))
+    avg_surprise = scalar(conn, """
+        WITH race_scores AS (
+            SELECT m.race_id,
+                   COALESCE(p.payout, 0) / 1000.0
+                   + COALESCE(p.popularity, 0) * 2.0
+                   + COALESCE((SELECT CASE WHEN r.car_no >= 6 THEN 12 ELSE 0 END FROM race_result r WHERE r.race_id = m.race_id AND r.rank = 1 LIMIT 1), 0) AS score
+            FROM race_master m
+            LEFT JOIN payout p ON p.race_id = m.race_id AND p.bet_type = ?
+        )
+        SELECT ROUND(AVG(score), 1) FROM race_scores
+    """, (TRIFECTA,))
+    daily_high = rows(conn, """
+        SELECT m.race_date, COUNT(*) AS count
+        FROM payout p
+        JOIN race_master m ON m.race_id = p.race_id
+        WHERE p.bet_type = ? AND p.payout >= 10000
+        GROUP BY m.race_date
+        ORDER BY m.race_date DESC
+        LIMIT 30
+    """, (TRIFECTA,))
+    venue_surprise = rows(conn, """
+        WITH winners AS (
+            SELECT race_id, car_no
+            FROM (
+                SELECT race_id, car_no,
+                       ROW_NUMBER() OVER (PARTITION BY race_id ORDER BY id) AS row_no
+                FROM race_result
+                WHERE rank = 1
+            )
+            WHERE row_no = 1
+        )
+        SELECT m.venue,
+               COUNT(*) AS races,
+               ROUND(AVG(COALESCE(p.payout, 0) / 1000.0 + COALESCE(p.popularity, 0) * 2.0 + CASE WHEN w.car_no >= 6 THEN 12 ELSE 0 END), 1) AS score
+        FROM race_master m
+        LEFT JOIN payout p ON p.race_id = m.race_id AND p.bet_type = ?
+        LEFT JOIN winners w ON w.race_id = m.race_id
+        GROUP BY m.venue
+        ORDER BY score DESC
+        LIMIT 20
+    """, (TRIFECTA,))
+    car_surprise = rows(conn, """
+        SELECT r.car_no,
+               COUNT(*) AS wins,
+               ROUND(AVG(COALESCE(p.payout, 0)), 0) AS avg_payout
+        FROM race_result r
+        JOIN race_master m ON m.race_id = r.race_id
+        LEFT JOIN payout p ON p.race_id = r.race_id AND p.bet_type = ?
+        WHERE r.rank = 1 AND r.car_no IS NOT NULL
+        GROUP BY r.car_no
+        ORDER BY avg_payout DESC
+    """, (TRIFECTA,))
+    for row in car_surprise:
+        row["car_label"] = f'{row["car_no"]}番'
+    race_rankings = custom_race_rows(conn)
+    top_performers = rows(conn, """
+        SELECT r.racer_name,
+               COUNT(*) AS starts,
+               SUM(CASE WHEN r.rank = 1 THEN 1 ELSE 0 END) AS wins,
+               ROUND(AVG(r.rank), 2) AS avg_rank,
+               ROUND(SUM(CASE WHEN r.rank <= 3 THEN COALESCE(p.popularity, 0) - r.rank ELSE 0 END), 1) AS score
+        FROM race_result r
+        JOIN race_master m ON m.race_id = r.race_id
+        LEFT JOIN payout p ON p.race_id = r.race_id AND p.bet_type = ?
+        WHERE r.racer_name IS NOT NULL AND r.racer_name != ''
+        GROUP BY r.racer_name
+        HAVING COUNT(*) >= ?
+        ORDER BY score DESC, starts DESC
+        LIMIT 100
+    """, (TRIFECTA, min_starts))
+    fade_rows = rows(conn, """
+        SELECT r.racer_name,
+               COUNT(*) AS starts,
+               ROUND(AVG(r.rank), 2) AS avg_rank,
+               ROUND(SUM(CASE WHEN r.rank > 3 THEN r.rank - COALESCE(p.popularity, 0) ELSE 0 END), 1) AS score
+        FROM race_result r
+        JOIN race_master m ON m.race_id = r.race_id
+        LEFT JOIN payout p ON p.race_id = r.race_id AND p.bet_type = ?
+        WHERE r.racer_name IS NOT NULL AND r.racer_name != ''
+        GROUP BY r.racer_name
+        HAVING COUNT(*) >= ?
+        ORDER BY score DESC, starts DESC
+        LIMIT 100
+    """, (TRIFECTA, min_starts))
+    growth = growth_index(conn)
+    yearly = rows(conn, """
+        SELECT racer_name, strftime('%Y', m.race_date) AS year, COUNT(*) AS starts
+        FROM race_result r
+        JOIN race_master m ON m.race_id = r.race_id
+        WHERE racer_name IS NOT NULL AND racer_name != ''
+        GROUP BY racer_name, year
+        ORDER BY starts DESC
+        LIMIT 100
+    """)
+    body = f"""
+    <div class="grid">
+      <div class="card"><span>対象レース数</span><strong>{h(number(s["races"]))}</strong></div>
+      <div class="card"><span>対象選手数</span><strong>{h(number(s["racers"]))}</strong></div>
+      <div class="card"><span>万車券レース</span><strong>{h(number(high_payout_races))}</strong></div>
+      <div class="card"><span>平均サプライズ</span><strong>{h(decimal(avg_surprise, 1))}</strong></div>
+      <div class="card"><span>対象期間</span><strong>{h((s["first_race_date"] or "-") + " - " + (s["latest_race_date"] or "-"))}</strong></div>
+      <div class="card"><span>選手ランキング条件</span><strong>{h(str(min_starts) + "走以上")}</strong></div>
+      <div class="card"><span>3連単最高配当</span><strong>{h(yen(s["trifecta_max"]))}</strong></div>
+      <div class="card"><span>最新更新</span><strong>{h(s["latest_created"] or "-")}</strong></div>
+    </div>
+    <div class="rank-note">{h(target_note)}</div>
+    """
+    body += '<div class="grid two">'
+    body += section("日別万車券件数", bar_chart(list(reversed(daily_high)), "race_date", "count", lambda v: f"{int(v)}件", 30))
+    body += section("会場別サプライズ指数", bar_chart(venue_surprise, "venue", "score", lambda v: f"{v:.1f}", 20))
+    body += "</div>"
+    body += section("1着車番別 平均3連単配当", bar_chart(car_surprise, "car_label", "avg_payout", yen, 9))
+    body += section("注目レース TOP100", rich_table(
+        ["詳細", "日付", "会場", "R", "レース名", "発走", "1着車番", "1着選手", "3連単", "人気", "並び位置", "指数"],
+        race_rankings,
+        ["detail", "race_date", "venue", "race_no", "race_title", "start_time", "winner_car", "winner", "trifecta_payout", "popularity", "line_position", "surprise_score"],
+    ), "配当、3連単人気、1着車番、並び位置を組み合わせ、荒れたレースや見返したいレースを上位に出します。")
+    body += section("人気を覆した選手", table(
+        ["選手", "出走", "1着", "平均着順", "指数"],
+        top_performers,
+        ["racer_name", "starts", "wins", "avg_rank", "score"],
+    ), "3着内に入ったレースで、3連単人気に対して着順が良かった選手を集計します。")
+    body += section("人気倒れ傾向", table(
+        ["選手", "出走", "平均着順", "指数"],
+        fade_rows,
+        ["racer_name", "starts", "avg_rank", "score"],
+    ), "3連単人気を代理指標として、着順が伸びなかったケースを集計します。")
+    body += '<div class="grid two">'
+    body += section("急成長ランキング", table(
+        ["選手", "直近20走", "過去20走", "指数"],
+        growth,
+        ["racer_name", "recent_avg", "past_avg", "score"],
+    ), "40走以上たまると、直近20走と過去20走の平均着順差で表示します。")
+    body += section("継続力ランキング", table(
+        ["選手", "年", "出走数"],
+        yearly,
+        ["racer_name", "year", "starts"],
+    ))
+    body += "</div>"
+    return page("独自分析", "custom", body)
+
+
+def render_race_detail(conn, race_id: str) -> str:
+    master = rows(conn, "SELECT * FROM race_master WHERE race_id = ?", (race_id,))
+    if not master:
+        return page("レース詳細", "races", section("レース詳細", '<div class="empty">データがありません</div>'))
+    race = master[0]
+    result_rows = rows(conn, """
+        SELECT rank, car_no, racer_name, class, prefecture, age, term, margin,
+               time, kimarite, start_mark, back_mark
+        FROM race_result
+        WHERE race_id = ?
+        ORDER BY rank IS NULL, rank, car_no
+    """, (race_id,))
+    payout_rows = rows(conn, """
+        SELECT bet_type, combination, payout, popularity
+        FROM payout
+        WHERE race_id = ?
+        ORDER BY id
+    """, (race_id,))
+    lineup_rows = rows(conn, """
+        SELECT line_no, line_position, car_no
+        FROM race_lineup
+        WHERE race_id = ?
+        ORDER BY line_no, line_position, car_no
+    """, (race_id,))
+    for row in payout_rows:
+        row["payout"] = yen(row["payout"])
+    body = f"""
+    <div class="grid">
+      <div class="card"><span>日付</span><strong>{h(race["race_date"])}</strong></div>
+      <div class="card"><span>会場</span><strong>{h(race["venue"])}</strong></div>
+      <div class="card"><span>レース</span><strong>{h(str(race["race_no"]) + "R")}</strong></div>
+      <div class="card"><span>発走</span><strong>{h(race["start_time"] or "-")}</strong></div>
+      <div class="card"><span>距離</span><strong>{h((str(race["distance"]) + "m") if race["distance"] else "-")}</strong></div>
+      <div class="card"><span>天候</span><strong>{h(race["weather"] or "-")}</strong></div>
+      <div class="card"><span>風速</span><strong>{h((str(race["wind_speed"]) + "m/s") if race["wind_speed"] is not None else "-")}</strong></div>
+      <div class="card"><span>級班</span><strong>{h(race["race_class"] or "-")}</strong></div>
+    </div>
+    """
+    body += section("レース情報", table(
+        ["項目", "値"],
+        [
+            {"name": "開催", "value": race["event_name"]},
+            {"name": "レース名", "value": race["race_title"]},
+            {"name": "締切", "value": race["deadline_time"]},
+            {"name": "状態", "value": race["status"]},
+            {"name": "周回", "value": race["laps"]},
+            {"name": "気温", "value": "" if race["temperature"] is None else f'{race["temperature"]}℃'},
+            {"name": "風向", "value": race["wind_direction"]},
+            {"name": "並び", "value": race["lineup_text"]},
+            {"name": "コメント", "value": race["race_comment"]},
+        ],
+        ["name", "value"],
+    ))
+    body += '<div class="grid two">'
+    body += section("着順", table(
+        ["着順", "車番", "選手", "級班", "府県", "年齢", "期", "着差", "上り", "決まり手", "S", "B"],
+        result_rows,
+        ["rank", "car_no", "racer_name", "class", "prefecture", "age", "term", "margin", "time", "kimarite", "start_mark", "back_mark"],
+    ))
+    body += section("払戻", table(
+        ["賭式", "組番", "払戻", "人気"],
+        payout_rows,
+        ["bet_type", "combination", "payout", "popularity"],
+    ))
+    body += "</div>"
+    body += section("並び詳細", table(
+        ["ライン", "位置", "車番"],
+        lineup_rows,
+        ["line_no", "line_position", "car_no"],
+    ))
+    return page(f'{race["race_date"]} {race["venue"]} {race["race_no"]}R', "races", body)
+
+
+def race_detail_payloads(conn) -> dict[str, list[dict]]:
+    payloads: dict[str, list[dict]] = defaultdict(list)
+    masters = rows(conn, "SELECT * FROM race_master ORDER BY race_date DESC, venue, race_no")
+    for race in masters:
+        race_id = race["race_id"]
+        compact_date = str(race_id).split("_", 1)[0]
+        payloads[compact_date].append({
+            "race": race,
+            "results": rows(conn, """
+                SELECT rank, car_no, racer_name, class, prefecture, age, term, margin,
+                       time, kimarite, start_mark, back_mark
+                FROM race_result
+                WHERE race_id = ?
+                ORDER BY rank IS NULL, rank, car_no
+            """, (race_id,)),
+            "payouts": rows(conn, """
+                SELECT bet_type, combination, payout, popularity
+                FROM payout
+                WHERE race_id = ?
+                ORDER BY id
+            """, (race_id,)),
+            "lineup": rows(conn, """
+                SELECT line_no, line_position, car_no
+                FROM race_lineup
+                WHERE race_id = ?
+                ORDER BY line_no, line_position, car_no
+            """, (race_id,)),
+        })
+    return payloads
+
+
+def render_race_detail_shell() -> str:
+    body = """
+    <section>
+      <h2 id="detail-title">レース詳細</h2>
+      <div id="race-detail-root"><div class="empty">読み込み中です</div></div>
+    </section>
+    <script>
+    (() => {
+      const root = document.getElementById("race-detail-root");
+      const title = document.getElementById("detail-title");
+      const params = new URLSearchParams(window.location.search);
+      const raceId = params.get("race_id") || "";
+      const date = params.get("date") || raceId.split("_")[0] || "";
+
+      const esc = (value) => {
+        if (value === null || value === undefined) return "";
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          '"': "&quot;",
+          "'": "&#39;"
+        }[char]));
+      };
+      const yen = (value) => {
+        if (value === null || value === undefined || value === "") return "";
+        return `${Number(value).toLocaleString("ja-JP")}円`;
+      };
+      const card = (label, value) => `<div class="card"><span>${esc(label)}</span><strong>${esc(value || "-")}</strong></div>`;
+      const table = (headers, rows, fields) => {
+        if (!rows || rows.length === 0) return '<div class="empty">データがありません</div>';
+        const head = headers.map((header) => `<th>${esc(header)}</th>`).join("");
+        const body = rows.map((row) => `<tr>${fields.map((field) => `<td>${esc(row[field])}</td>`).join("")}</tr>`).join("");
+        return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+      };
+      const section = (heading, content) => `<section><h2>${esc(heading)}</h2>${content}</section>`;
+
+      if (!raceId || !date) {
+        root.innerHTML = '<div class="empty">race_id が指定されていません</div>';
+        return;
+      }
+
+      fetch(`data/race_details/${date}.json`, { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("detail json not found");
+          return response.json();
+        })
+        .then((items) => {
+          const item = items.find((entry) => entry.race && entry.race.race_id === raceId);
+          if (!item) {
+            root.innerHTML = '<div class="empty">該当レースが見つかりません</div>';
+            return;
+          }
+          const race = item.race;
+          const payouts = (item.payouts || []).map((row) => ({ ...row, payout_display: yen(row.payout) }));
+          title.textContent = `${race.race_date || ""} ${race.venue || ""} ${race.race_no || ""}R`;
+          const cards = [
+            card("日付", race.race_date),
+            card("会場", race.venue),
+            card("レース", race.race_no ? `${race.race_no}R` : ""),
+            card("発走", race.start_time),
+            card("距離", race.distance ? `${race.distance}m` : ""),
+            card("天候", race.weather),
+            card("風速", race.wind_speed !== null && race.wind_speed !== undefined ? `${race.wind_speed}m/s` : ""),
+            card("級班", race.race_class)
+          ].join("");
+          const infoRows = [
+            { name: "開催", value: race.event_name },
+            { name: "レース名", value: race.race_title },
+            { name: "締切", value: race.deadline_time },
+            { name: "状態", value: race.status },
+            { name: "周回", value: race.laps },
+            { name: "気温", value: race.temperature !== null && race.temperature !== undefined ? `${race.temperature}℃` : "" },
+            { name: "風向", value: race.wind_direction },
+            { name: "並び", value: race.lineup_text },
+            { name: "コメント", value: race.race_comment }
+          ];
+          root.innerHTML = `
+            <div class="grid">${cards}</div>
+            ${section("レース情報", table(["項目", "値"], infoRows, ["name", "value"]))}
+            <div class="grid two">
+              ${section("着順", table(["着順", "車番", "選手", "級班", "府県", "年齢", "期", "着差", "上り", "決まり手", "S", "B"], item.results || [], ["rank", "car_no", "racer_name", "class", "prefecture", "age", "term", "margin", "time", "kimarite", "start_mark", "back_mark"]))}
+              ${section("払戻", table(["賭式", "組番", "払戻", "人気"], payouts, ["bet_type", "combination", "payout_display", "popularity"]))}
+            </div>
+            ${section("並び詳細", table(["ライン", "位置", "車番"], item.lineup || [], ["line_no", "line_position", "car_no"]))}
+          `;
+        })
+        .catch(() => {
+          root.innerHTML = '<div class="empty">詳細データを読み込めませんでした</div>';
+        });
+    })();
+    </script>
+    """
+    return page("レース詳細", "races", body)
+
+
 def export_all(output_dir: Path = DOCS_DIR) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    data_detail_dir = output_dir / "data" / "race_details"
+    data_detail_dir.mkdir(parents=True, exist_ok=True)
+    for stale_path in data_detail_dir.glob("*.json"):
+        stale_path.unlink()
     with connect(DB_PATH) as conn:
         init_db(conn)
         pages = {
@@ -1013,12 +1466,18 @@ def export_all(output_dir: Path = DOCS_DIR) -> list[Path]:
             "racers.html": render_racers(conn),
             "races.html": render_races(conn),
             "quality.html": render_quality(conn),
-            "custom.html": render_custom(conn),
+            "custom.html": render_custom_v2(conn),
+            "race_detail.html": render_race_detail_shell(),
         }
+        detail_payloads = race_detail_payloads(conn)
     written = []
     for filename, content in pages.items():
         path = output_dir / filename
         path.write_text(content, encoding="utf-8")
+        written.append(path)
+    for compact_date, payload in detail_payloads.items():
+        path = data_detail_dir / f"{compact_date}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         written.append(path)
     (output_dir / ".nojekyll").touch()
     return written
