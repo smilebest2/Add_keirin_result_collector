@@ -1360,12 +1360,26 @@ def render_race_detail(conn, race_id: str) -> str:
     return page(f'{race["race_date"]} {race["venue"]} {race["race_no"]}R', "races", body)
 
 
-def race_detail_payloads(conn) -> dict[str, list[dict]]:
+def normalize_compact_date(value: str | None) -> str | None:
+    if not value:
+        return None
+    return value.replace("-", "")
+
+
+def default_detail_dates(conn) -> set[str]:
+    latest_date = scalar(conn, "SELECT MAX(race_date) FROM race_master")
+    compact_date = normalize_compact_date(latest_date)
+    return {compact_date} if compact_date else set()
+
+
+def race_detail_payloads(conn, target_dates: set[str] | None = None) -> dict[str, list[dict]]:
     payloads: dict[str, list[dict]] = defaultdict(list)
     masters = rows(conn, "SELECT * FROM race_master ORDER BY race_date DESC, venue, race_no")
     for race in masters:
         race_id = race["race_id"]
         compact_date = str(race_id).split("_", 1)[0]
+        if target_dates is not None and compact_date not in target_dates:
+            continue
         payloads[compact_date].append({
             "race": race,
             "results": rows(conn, """
@@ -1487,14 +1501,13 @@ def render_race_detail_shell() -> str:
     return page("レース詳細", "races", body)
 
 
-def export_all(output_dir: Path = DOCS_DIR) -> list[Path]:
+def export_all(output_dir: Path = DOCS_DIR, detail_dates: set[str] | None = None) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     data_detail_dir = output_dir / "data" / "race_details"
     data_detail_dir.mkdir(parents=True, exist_ok=True)
-    for stale_path in data_detail_dir.glob("*.json"):
-        stale_path.unlink()
     with connect(DB_PATH) as conn:
         init_db(conn)
+        target_detail_dates = detail_dates if detail_dates is not None else default_detail_dates(conn)
         pages = {
             "index.html": render_top(conn),
             "venues.html": render_venues(conn),
@@ -1506,7 +1519,7 @@ def export_all(output_dir: Path = DOCS_DIR) -> list[Path]:
             "custom.html": render_custom_v2(conn),
             "race_detail.html": render_race_detail_shell(),
         }
-        detail_payloads = race_detail_payloads(conn)
+        detail_payloads = race_detail_payloads(conn, target_detail_dates)
     written = []
     for filename, content in pages.items():
         path = output_dir / filename
@@ -1516,14 +1529,28 @@ def export_all(output_dir: Path = DOCS_DIR) -> list[Path]:
         path = data_detail_dir / f"{compact_date}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         written.append(path)
+    for compact_date in target_detail_dates - set(detail_payloads):
+        path = data_detail_dir / f"{compact_date}.json"
+        if path.exists():
+            path.unlink()
+            written.append(path)
     (output_dir / ".nojekyll").touch()
     return written
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate keirin analytics HTML reports")
-    parser.parse_args()
-    for path in export_all():
+    parser.add_argument(
+        "--detail-date",
+        action="append",
+        help="Detail JSON date to update in YYYY-MM-DD or YYYYMMDD. Default: latest race date in DB.",
+    )
+    args = parser.parse_args()
+    detail_dates = None
+    if args.detail_date:
+        detail_dates = {normalize_compact_date(value) for value in args.detail_date}
+        detail_dates = {value for value in detail_dates if value}
+    for path in export_all(detail_dates=detail_dates):
         print(f"Exported {path}")
 
 
