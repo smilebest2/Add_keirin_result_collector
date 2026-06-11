@@ -74,10 +74,7 @@ def fetch_rendered_html(url: str, output_path, retry: int = REQUEST_RETRY) -> st
 
 
 def default_target_date() -> str:
-    now = datetime.now(JST)
-    if now.hour < 12:
-        now = now - timedelta(days=1)
-    return now.date().isoformat()
+    return (datetime.now(JST).date() - timedelta(days=1)).isoformat()
 
 
 def result_list_urls(target_date: str) -> list[str]:

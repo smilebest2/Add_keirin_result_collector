@@ -491,7 +491,7 @@ def render_top(conn) -> str:
         <a class="action-button" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/collect.yml">手動で取得する</a>
         <a class="action-button secondary" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/reset-data.yml">取得データを削除する</a>
       </div>
-    """, "ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日23:40 JSTです。")
+    """, "ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日8:00 JSTに前日分を取得します。")
     body += '<div class="grid two">'
     body += section("日別取得レース数", bar_chart(daily_chart, "race_date", "races", lambda v: f"{int(v)}R", 30))
     body += section("月別3連単平均配当", bar_chart(list(reversed(monthly)), "month", "avg_payout", yen, 12))

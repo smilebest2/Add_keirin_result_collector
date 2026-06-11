@@ -2,9 +2,7 @@ name: Collect Keirin Results
 
 on:
   schedule:
-    - cron: "40 14 * * *"
-    - cron: "40 15 * * *"
-    - cron: "40 16 * * *"
+    - cron: "0 23 * * *"
   workflow_dispatch:
 
 permissions:
