@@ -32,10 +32,12 @@ python -m src.scraper --date 2026-06-10
 
 ## GitHub Actions
 
-`.github/workflows/collect.yml` により、毎日 23:40 JST に自動取得します。
+`.github/workflows/collect.yml` により、毎日 23:40 JST に自動取得します。GitHub Actionsの遅延や一時失敗に備えて、0:40 JST、1:40 JSTにもバックアップ実行します。既に取得済みのレースは重複登録しません。
 
 push後の自動取得は行いません。手動で取得したい場合は、GitHub Actionsの `Collect Keirin Results` から `Run workflow` を実行します。
 
 取得済みデータを削除したい場合は、GitHub Actionsの `Reset Keirin Data` から `Run workflow` を実行します。
+
+GitHub Actionsのscheduleは実行が遅延することがあります。深夜帯に遅延実行された場合は、前日分を対象にして取得します。
 
 GitHub Pagesは `main` ブランチの `/docs` を公開元にします。

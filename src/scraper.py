@@ -1,6 +1,6 @@
 import argparse
 import logging
-from datetime import date, datetime
+from datetime import datetime, timedelta, timezone
 from time import sleep
 
 import requests
@@ -10,6 +10,10 @@ from playwright.sync_api import sync_playwright
 from .config import HEADERS, LOG_DIR, REQUEST_RETRY, REQUEST_TIMEOUT, RESULTS_URL
 from .db import connect, init_db, race_exists, save_race
 from .parser import extract_payouts, extract_race_meta, extract_race_results, extract_result_links
+
+
+JST = timezone(timedelta(hours=9))
+RESULT_LINK_RETRY = 5
 
 
 def setup_logging() -> None:
@@ -69,11 +73,43 @@ def fetch_rendered_html(url: str, output_path, retry: int = REQUEST_RETRY) -> st
     raise RuntimeError(f"Failed to render {url}") from last_error
 
 
+def default_target_date() -> str:
+    now = datetime.now(JST)
+    if now.hour < 12:
+        now = now - timedelta(days=1)
+    return now.date().isoformat()
+
+
+def result_list_urls(target_date: str) -> list[str]:
+    compact_date = target_date.replace("-", "")
+    return [
+        f"{RESULTS_URL}/{compact_date}",
+        RESULTS_URL,
+    ]
+
+
+def fetch_result_links(target_date: str):
+    last_html = ""
+    for attempt in range(1, RESULT_LINK_RETRY + 1):
+        for url in result_list_urls(target_date):
+            logging.info("Rendering result list (%s/%s): %s", attempt, RESULT_LINK_RETRY, url)
+            html = fetch_rendered_html(url, LOG_DIR / "results_rendered.html")
+            last_html = html
+            links = extract_result_links(html)
+            if links:
+                return links
+            logging.warning("No result links found in rendered page: %s", url)
+        if attempt < RESULT_LINK_RETRY:
+            wait_seconds = 90 * attempt
+            logging.warning("Result links were empty. Retrying after %s seconds.", wait_seconds)
+            sleep(wait_seconds)
+    return extract_result_links(last_html)
+
+
 def collect(target_date: str | None = None) -> dict:
-    target_date = target_date or date.today().isoformat()
+    target_date = target_date or default_target_date()
     logging.info("Collecting keirin results for %s", target_date)
-    list_html = fetch_rendered_html(RESULTS_URL, LOG_DIR / "results_rendered.html")
-    links = extract_result_links(list_html)
+    links = fetch_result_links(target_date)
     logging.info("Found %s result links", len(links))
     if not links:
         raise RuntimeError("No result links were found in rendered results page")
