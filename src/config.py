@@ -3,6 +3,7 @@ from pathlib import Path
 
 BASE_URL = "https://www.winticket.jp"
 RESULTS_URL = f"{BASE_URL}/keirin/results"
+RACECARD_URL = f"{BASE_URL}/keirin/racecard"
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "data"

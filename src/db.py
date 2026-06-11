@@ -66,6 +66,92 @@ CREATE TABLE IF NOT EXISTS race_lineup (
     line_position INTEGER,
     FOREIGN KEY (race_id) REFERENCES race_master(race_id)
 );
+
+CREATE TABLE IF NOT EXISTS race_schedule (
+    race_id TEXT PRIMARY KEY,
+    race_date TEXT,
+    venue TEXT,
+    race_no INTEGER,
+    event_name TEXT,
+    race_title TEXT,
+    race_class TEXT,
+    start_time TEXT,
+    deadline_time TEXT,
+    status TEXT,
+    distance INTEGER,
+    laps INTEGER,
+    weather TEXT,
+    temperature REAL,
+    wind_direction TEXT,
+    wind_speed REAL,
+    lineup_text TEXT,
+    detail_url TEXT,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS race_entry (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    race_id TEXT,
+    car_no INTEGER,
+    racer_name TEXT,
+    class TEXT,
+    prefecture TEXT,
+    age INTEGER,
+    term INTEGER,
+    gear_ratio REAL,
+    leg_type TEXT,
+    score REAL,
+    win_rate REAL,
+    quinella_rate REAL,
+    trifecta_rate REAL,
+    comment TEXT,
+    FOREIGN KEY (race_id) REFERENCES race_schedule(race_id)
+);
+
+CREATE TABLE IF NOT EXISTS race_lineup_forecast (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    race_id TEXT,
+    car_no INTEGER,
+    line_no INTEGER,
+    line_position INTEGER,
+    FOREIGN KEY (race_id) REFERENCES race_schedule(race_id)
+);
+
+CREATE TABLE IF NOT EXISTS race_prediction (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    race_id TEXT,
+    race_date TEXT,
+    prediction_type TEXT,
+    predicted_1st INTEGER,
+    predicted_2nd INTEGER,
+    predicted_3rd INTEGER,
+    confidence TEXT,
+    score REAL,
+    reason_text TEXT,
+    stake_amount INTEGER DEFAULT 100,
+    created_at TEXT,
+    UNIQUE (race_id, prediction_type),
+    FOREIGN KEY (race_id) REFERENCES race_schedule(race_id)
+);
+
+CREATE TABLE IF NOT EXISTS race_prediction_result (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prediction_id INTEGER UNIQUE,
+    race_id TEXT,
+    actual_1st INTEGER,
+    actual_2nd INTEGER,
+    actual_3rd INTEGER,
+    hit_exact INTEGER,
+    hit_1st INTEGER,
+    hit_top2 INTEGER,
+    hit_top3_count INTEGER,
+    payout INTEGER,
+    stake_amount INTEGER,
+    return_amount INTEGER,
+    roi REAL,
+    checked_at TEXT,
+    FOREIGN KEY (prediction_id) REFERENCES race_prediction(id)
+);
 """
 
 
@@ -107,6 +193,16 @@ def init_db(conn: sqlite3.Connection) -> None:
     }.items():
         ensure_column(conn, "race_result", column, column_type)
     ensure_column(conn, "payout", "popularity", "INTEGER")
+    for column, column_type in {
+        "gear_ratio": "REAL",
+        "leg_type": "TEXT",
+        "score": "REAL",
+        "win_rate": "REAL",
+        "quinella_rate": "REAL",
+        "trifecta_rate": "REAL",
+        "comment": "TEXT",
+    }.items():
+        ensure_column(conn, "race_entry", column, column_type)
     conn.commit()
 
 
@@ -226,6 +322,96 @@ def save_race(conn: sqlite3.Connection, race: dict, results: list[dict], payouts
             ],
         )
 
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        raise
+
+
+def save_schedule(conn: sqlite3.Connection, race: dict, entries: list[dict]) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    try:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO race_schedule
+                (
+                    race_id, race_date, venue, race_no, event_name, race_title,
+                    race_class, start_time, deadline_time, status, distance,
+                    laps, weather, temperature, wind_direction, wind_speed,
+                    lineup_text, detail_url, created_at
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                race["race_id"],
+                race["race_date"],
+                race["venue"],
+                race["race_no"],
+                race.get("event_name"),
+                race.get("race_title"),
+                race.get("race_class"),
+                race.get("start_time"),
+                race.get("deadline_time"),
+                race.get("status"),
+                race.get("distance"),
+                race.get("laps"),
+                race.get("weather"),
+                race.get("temperature"),
+                race.get("wind_direction"),
+                race.get("wind_speed"),
+                race.get("lineup_text"),
+                race["detail_url"],
+                now,
+            ),
+        )
+        conn.execute("DELETE FROM race_entry WHERE race_id = ?", (race["race_id"],))
+        conn.execute("DELETE FROM race_lineup_forecast WHERE race_id = ?", (race["race_id"],))
+        conn.executemany(
+            """
+            INSERT INTO race_entry
+                (
+                    race_id, car_no, racer_name, class, prefecture, age, term,
+                    gear_ratio, leg_type, score, win_rate, quinella_rate,
+                    trifecta_rate, comment
+                )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    race["race_id"],
+                    item.get("car_no"),
+                    item.get("racer_name"),
+                    item.get("class"),
+                    item.get("prefecture"),
+                    item.get("age"),
+                    item.get("term"),
+                    item.get("gear_ratio"),
+                    item.get("leg_type"),
+                    item.get("score"),
+                    item.get("win_rate"),
+                    item.get("quinella_rate"),
+                    item.get("trifecta_rate"),
+                    item.get("comment"),
+                )
+                for item in entries
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO race_lineup_forecast
+                (race_id, car_no, line_no, line_position)
+            VALUES (?, ?, ?, ?)
+            """,
+            [
+                (
+                    race["race_id"],
+                    item.get("car_no"),
+                    item.get("line_no"),
+                    item.get("line_position"),
+                )
+                for item in race.get("lineup", [])
+            ],
+        )
         conn.commit()
     except sqlite3.Error:
         conn.rollback()

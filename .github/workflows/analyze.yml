@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Evaluate predictions
+        run: python -m src.prediction
+
       - name: Generate analytics pages
         run: python -m src.analysis
 
@@ -28,4 +31,4 @@ jobs:
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "Update keirin analytics pages"
-          file_pattern: docs/*.html docs/.nojekyll
+          file_pattern: data/keirin.db docs/*.html docs/.nojekyll

@@ -34,6 +34,12 @@ jobs:
       - name: Collect results
         run: python -m src.scraper
 
+      - name: Collect racecards
+        run: python -m src.schedule
+
+      - name: Generate predictions
+        run: python -m src.prediction
+
       - name: Export analytics pages
         run: python -m src.analysis
 

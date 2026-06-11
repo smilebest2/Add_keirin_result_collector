@@ -26,6 +26,9 @@ jobs:
           rm -f logs/collector.log
           rm -f logs/error.log
           rm -f logs/results_rendered.html
+          rm -f logs/schedule.log
+          rm -f logs/racecard_rendered.html
+          rm -f logs/racecard_detail_rendered.html
           rm -rf docs/data/race_details
 
       - name: Generate empty analytics pages

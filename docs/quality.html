@@ -220,6 +220,25 @@
       background: #fbfcfd;
       border-bottom: 1px solid var(--line);
     }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 3px 8px;
+      background: var(--soft-2);
+      color: var(--accent-2);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .hit {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .miss {
+      color: #b91c1c;
+      font-weight: 700;
+    }
     .ranking-more {
       border-top: 1px solid var(--line);
     }
@@ -245,12 +264,12 @@
   <header>
     <div class="wrap">
       <h1>データ品質</h1>
-      <nav><a class="" href="index.html">TOP</a><a class="" href="venues.html">会場分析</a><a class="" href="car_numbers.html">車番分析</a><a class="" href="payouts.html">配当分析</a><a class="" href="racers.html">選手分析</a><a class="" href="races.html">レース一覧</a><a class="active" href="quality.html">データ品質</a><a class="" href="custom.html">独自ランキング</a></nav>
+      <nav><a class="" href="index.html">TOP</a><a class="" href="venues.html">会場分析</a><a class="" href="car_numbers.html">車番分析</a><a class="" href="payouts.html">配当分析</a><a class="" href="racers.html">選手分析</a><a class="" href="races.html">レース一覧</a><a class="" href="predictions.html">予想</a><a class="" href="prediction-results.html">予想結果</a><a class="active" href="quality.html">データ品質</a><a class="" href="custom.html">独自ランキング</a></nav>
     </div>
   </header>
   <main>
     <div class="wrap">
-      <section><h2>データ品質サマリー</h2><table><thead><tr><th>項目</th><th>値</th></tr></thead><tbody><tr><td>総レース数</td><td>89</td></tr><tr><td>着順0件のレース</td><td>0</td></tr><tr><td>配当0件のレース</td><td>0</td></tr><tr><td>天候未取得</td><td>0</td></tr><tr><td>風速未取得</td><td>12</td></tr><tr><td>並び未取得</td><td>0</td></tr><tr><td>Playwright HTML保存日時</td><td>2026-06-11T21:09:13</td></tr></tbody></table></section><section><h2>会場別蓄積状況</h2><table><thead><tr><th>会場</th><th>レース数</th><th>最初の日付</th><th>最新日付</th></tr></thead><tbody><tr><td>いわき平</td><td>12</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>前橋</td><td>12</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>京王閣</td><td>11</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>防府</td><td>11</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>静岡</td><td>11</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>別府</td><td>9</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>宇都宮</td><td>9</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>大垣</td><td>7</td><td>2026-06-10</td><td>2026-06-10</td></tr><tr><td>青森</td><td>7</td><td>2026-06-10</td><td>2026-06-10</td></tr></tbody></table></section><section><h2>直近ログ</h2><table><thead><tr><th>ログ</th></tr></thead><tbody><tr><td>2026-06-11 12:01:28,593 INFO root Saved race: 20260610_AOM_01</td></tr><tr><td>2026-06-11 12:01:28,781 INFO root Saved race: 20260610_AOM_02</td></tr><tr><td>2026-06-11 12:01:28,976 INFO root Saved race: 20260610_AOM_03</td></tr><tr><td>2026-06-11 12:01:29,212 INFO root Saved race: 20260610_AOM_04</td></tr><tr><td>2026-06-11 12:01:29,407 INFO root Saved race: 20260610_AOM_05</td></tr><tr><td>2026-06-11 12:01:29,607 INFO root Saved race: 20260610_AOM_06</td></tr><tr><td>2026-06-11 12:01:29,807 INFO root Saved race: 20260610_AOM_07</td></tr><tr><td>2026-06-11 12:01:31,685 INFO root Saved race: 20260610_KEI_01</td></tr><tr><td>2026-06-11 12:01:32,816 INFO root Saved race: 20260610_KEI_02</td></tr><tr><td>2026-06-11 12:01:34,584 INFO root Saved race: 20260610_KEI_03</td></tr><tr><td>2026-06-11 12:01:36,310 INFO root Saved race: 20260610_KEI_04</td></tr><tr><td>2026-06-11 12:01:37,558 INFO root Saved race: 20260610_KEI_05</td></tr><tr><td>2026-06-11 12:01:39,126 INFO root Saved race: 20260610_KEI_06</td></tr><tr><td>2026-06-11 12:01:40,367 INFO root Saved race: 20260610_KEI_07</td></tr><tr><td>2026-06-11 12:01:41,516 INFO root Saved race: 20260610_KEI_08</td></tr><tr><td>2026-06-11 12:01:42,700 INFO root Saved race: 20260610_KEI_09</td></tr><tr><td>2026-06-11 12:01:44,365 INFO root Saved race: 20260610_KEI_10</td></tr><tr><td>2026-06-11 12:01:46,245 INFO root Saved race: 20260610_KEI_11</td></tr><tr><td>2026-06-11 12:01:46,440 INFO root Saved race: 20260610_SHI_01</td></tr><tr><td>2026-06-11 12:01:46,641 INFO root Saved race: 20260610_SHI_02</td></tr><tr><td>2026-06-11 12:01:46,841 INFO root Saved race: 20260610_SHI_03</td></tr><tr><td>2026-06-11 12:01:47,063 INFO root Saved race: 20260610_SHI_04</td></tr><tr><td>2026-06-11 12:01:47,267 INFO root Saved race: 20260610_SHI_05</td></tr><tr><td>2026-06-11 12:01:47,468 INFO root Saved race: 20260610_SHI_06</td></tr><tr><td>2026-06-11 12:01:47,699 INFO root Saved race: 20260610_SHI_07</td></tr><tr><td>2026-06-11 12:01:47,895 INFO root Saved race: 20260610_SHI_08</td></tr><tr><td>2026-06-11 12:01:48,087 INFO root Saved race: 20260610_SHI_09</td></tr><tr><td>2026-06-11 12:01:48,294 INFO root Saved race: 20260610_SHI_10</td></tr><tr><td>2026-06-11 12:01:48,528 INFO root Saved race: 20260610_SHI_11</td></tr><tr><td>2026-06-11 12:01:48,528 INFO root Completed: {&#x27;found&#x27;: 89, &#x27;saved&#x27;: 89, &#x27;skipped&#x27;: 0, &#x27;failed&#x27;: 0}</td></tr></tbody></table></section>
+      <section><h2>データ品質サマリー</h2><table><thead><tr><th>項目</th><th>値</th></tr></thead><tbody><tr><td>総レース数</td><td>0</td></tr><tr><td>着順0件のレース</td><td>0</td></tr><tr><td>配当0件のレース</td><td>0</td></tr><tr><td>天候未取得</td><td>0</td></tr><tr><td>風速未取得</td><td>0</td></tr><tr><td>並び未取得</td><td>0</td></tr><tr><td>Playwright HTML保存日時</td><td>-</td></tr></tbody></table></section><section><h2>会場別蓄積状況</h2><div class="empty">データがありません</div></section><section><h2>直近ログ</h2><div class="empty">データがありません</div></section>
     </div>
   </main>
 </body>
