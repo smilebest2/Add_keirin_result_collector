@@ -199,32 +199,77 @@ def entry_scores(conn, race: dict, target_date: str) -> list[dict]:
     return scored
 
 
+def metric(row: dict, key: str) -> float:
+    return float(row.get(key) or 0)
+
+
+def avg_rank(row: dict) -> float:
+    return float(row.get("avg_rank") or 99)
+
+
+def strategy_value(prediction_type: str, row: dict) -> float:
+    base = metric(row, "base_score")
+    win = metric(row, "win_rate")
+    top2 = metric(row, "top2_rate")
+    top3 = metric(row, "top3_rate")
+    venue_top3 = metric(row, "venue_top3_rate")
+    upset = metric(row, "upset_score")
+    fade = max(metric(row, "fade_score"), 0)
+    activity = metric(row, "activity_score")
+    line_pos = row.get("line_position")
+    line_bonus = 6 if line_pos == 1 else 3 if line_pos == 2 else 0
+
+    if prediction_type == "本命予想":
+        return base + win * 0.25 + top2 * 0.12 + line_bonus
+    if prediction_type == "穴予想":
+        return base * 0.45 + venue_top3 * 0.7 + top3 * 0.45 + upset * 8 - win * 0.35
+    if prediction_type == "ヘテオジマーベリック予想":
+        return base * 0.35 + upset * 12 + top3 * 0.35 + venue_top3 * 0.25 - win * 0.2
+    if prediction_type == "行動ヒヒーン予想":
+        return base * 0.38 + activity * 1.8 - avg_rank(row) * 4 + top2 * 0.25
+    return base * 0.55 + top2 * 0.35 + top3 * 0.25 + line_bonus - fade * 6
+
+
+def take_unique(*groups: list[dict]) -> list[dict]:
+    picked = []
+    seen = set()
+    for group in groups:
+        for row in group:
+            car_no = int(row["car_no"])
+            if car_no in seen:
+                continue
+            picked.append(row)
+            seen.add(car_no)
+            if len(picked) == 3:
+                return picked
+    return picked
+
+
 def pick_combo(prediction_type: str, scored: list[dict]) -> tuple[list[int], float, str]:
     if len(scored) < 3:
         return [], 0, "出走表データが不足しています。"
 
+    base_ranked = sorted(scored, key=lambda row: row["base_score"], reverse=True)
+    strategy_ranked = sorted(scored, key=lambda row: strategy_value(prediction_type, row), reverse=True)
+
     if prediction_type == "本命予想":
-        ranked = sorted(scored, key=lambda row: row["base_score"], reverse=True)
+        ranked = base_ranked
         reason = "選手成績、会場傾向、車番傾向を総合して上位評価。"
     elif prediction_type == "穴予想":
-        ranked = sorted(
-            scored,
-            key=lambda row: (row["base_score"] * 0.72 + (row.get("venue_top3_rate") or 0) * 0.2 - (row.get("win_rate") or 0) * 0.08),
-            reverse=True,
-        )
-        reason = "本命寄りになりすぎないよう、会場相性と3着内の余地を重視。"
+        ranked = take_unique(strategy_ranked[1:4], strategy_ranked, base_ranked)
+        reason = "本命寄りになりすぎないよう、会場相性と3着内の余地がある中位上昇候補を重視。"
     elif prediction_type == "ヘテオジマーベリック予想":
-        ranked = sorted(scored, key=lambda row: (row.get("upset_score") or 0, row["base_score"]), reverse=True)
-        reason = "過去に人気を覆して上位に来た傾向を重視。"
+        ranked = take_unique(strategy_ranked, base_ranked[2:], base_ranked)
+        reason = "過去に人気を覆して上位に来た傾向と、3着内へ飛び込む余地を重視。"
     elif prediction_type == "行動ヒヒーン予想":
-        ranked = sorted(scored, key=lambda row: (row.get("activity_score") or 0, -1 * (row.get("avg_rank") or 99), row["base_score"]), reverse=True)
+        ranked = take_unique(strategy_ranked, base_ranked)
         reason = "出走数と継続性、安定した平均着順を重視。"
     else:
-        ranked = sorted(scored, key=lambda row: (row["base_score"] - max(row.get("fade_score") or 0, 0) * 2), reverse=True)
+        ranked = take_unique(strategy_ranked, base_ranked)
         reason = "人気倒れ傾向を避け、統計上の安定候補を残す。"
 
     combo = [int(row["car_no"]) for row in ranked[:3]]
-    score_value = sum(float(row["base_score"]) for row in ranked[:3])
+    score_value = sum(strategy_value(prediction_type, row) for row in ranked[:3])
     if not any(row.get("same_venue_yesterday") for row in scored):
         reason += " 前日同会場データなしのため、累積会場傾向と選手成績を優先。"
     else:

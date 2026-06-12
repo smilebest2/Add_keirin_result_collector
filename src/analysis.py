@@ -90,9 +90,17 @@ def rich_table(headers: list[str], data: list[dict], fields: list[str], empty="ã
         cells = []
         for field in fields:
             value = row.get(field, "")
-            cells.append(str(value) if isinstance(value, str) and value.startswith("<a ") else h(value))
+            cells.append(str(value) if is_safe_inline_html(value) else h(value))
         body_html += "<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{body_html}</tbody></table>"
+
+
+def is_safe_inline_html(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    return value.startswith("<a ") or (
+        value.startswith('<span class="') and value.endswith("</span>") and "<script" not in value.lower()
+    )
 
 
 def accordion_table(
