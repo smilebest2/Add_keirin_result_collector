@@ -1,6 +1,7 @@
 import argparse
 import html
 import json
+import os
 import re
 import statistics
 from collections import defaultdict
@@ -13,6 +14,12 @@ from .db import connect, init_db
 
 DOCS_DIR = ROOT_DIR / "docs"
 TRIFECTA = "3連単"
+DEFAULT_GITHUB_REPOSITORY = "smilebest2/Add_keirin_result_collector"
+
+
+def workflow_url(workflow_name: str) -> str:
+    repository = os.environ.get("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPOSITORY)
+    return f"https://github.com/{repository}/actions/workflows/{workflow_name}"
 
 
 def h(value) -> str:
@@ -666,10 +673,10 @@ def render_top(conn) -> str:
       <div class="card"><span>最終保存日時</span><strong>{h(s["latest_created"] or "-")}</strong></div>
     </div>
     """
-    body += section("運用操作", """
+    body += section("運用操作", f"""
       <div class="actions">
-        <a class="action-button" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/collect.yml">手動で取得する</a>
-        <a class="action-button secondary" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/reset-data.yml">取得データを削除する</a>
+        <a class="action-button" href="{h(workflow_url("collect.yml"))}">手動で取得する</a>
+        <a class="action-button secondary" href="{h(workflow_url("reset-data.yml"))}">取得データを削除する</a>
       </div>
     """, "ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日8:00 JSTに前日分を取得します。")
     body += '<div class="grid two">'
