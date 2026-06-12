@@ -181,6 +181,13 @@
       border-top: 1px solid var(--line);
       font-size: 13px;
     }
+    .inline-note {
+      padding: 12px 15px;
+      color: var(--muted);
+      font-size: 13px;
+      background: #fbfcfd;
+      border-bottom: 1px solid var(--line);
+    }
     .actions {
       display: flex;
       flex-wrap: wrap;
@@ -231,6 +238,61 @@
       font-weight: 700;
       white-space: nowrap;
     }
+    .pill.warn {
+      background: var(--warn);
+      color: var(--accent-3);
+    }
+    .pill.low {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .pill.ok {
+      background: var(--soft);
+      color: var(--accent);
+    }
+    tr.sample-low td {
+      opacity: 0.48;
+      background: #f8fafc;
+    }
+    tr.sample-low td:first-child::after {
+      content: " 参考";
+      color: var(--accent-3);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 10px;
+      padding: 14px 15px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+    .filters label {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .filters input, .filters select {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 9px;
+      background: #ffffff;
+      color: var(--ink);
+      font: inherit;
+    }
+    .filters .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-top: 20px;
+    }
+    .filters .check input {
+      min-height: 0;
+    }
     .hit {
       color: var(--accent);
       font-weight: 700;
@@ -256,6 +318,7 @@
       section { overflow-x: auto; }
       table { min-width: 760px; }
       .bar-row { grid-template-columns: 96px minmax(130px, 1fr) 74px; }
+      .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       h1 { font-size: 24px; }
     }
   </style>
