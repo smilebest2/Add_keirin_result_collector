@@ -1448,16 +1448,22 @@ def render_racers(conn) -> str:
               filter();
             }});
           }});
-          document.querySelectorAll(".racer-search-table tbody tr").forEach((tr) => {{
-            tr.addEventListener("click", () => {{
-              selectedRacer = tr.dataset.racerName || "";
-              if (selectedRacer) input.value = selectedRacer;
-              filter();
-            }});
+          document.addEventListener("click", (event) => {{
+            const tr = event.target.closest(".racer-search-table tbody tr");
+            if (!tr) return;
+            selectedRacer = tr.dataset.racerName || "";
+            if (selectedRacer) input.value = selectedRacer;
+            filter();
           }});
           clearSelection.addEventListener("click", () => {{
             selectedRacer = "";
             input.value = "";
+            gradeGroup.value = "";
+            racerClass.value = "";
+            termFrom.value = "";
+            termTo.value = "";
+            kana = "";
+            kanaButtons.forEach((item, index) => item.classList.toggle("active", index === 0));
             filter();
           }});
           if (kanaButtons[0]) kanaButtons[0].classList.add("active");
