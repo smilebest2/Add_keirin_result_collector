@@ -676,9 +676,10 @@ def render_top(conn) -> str:
     body += section("運用操作", f"""
       <div class="actions">
         <a class="action-button" href="{h(workflow_url("collect.yml"))}">手動で取得する</a>
+        <a class="action-button" href="{h(workflow_url("analyze.yml"))}">予想・ページ更新</a>
         <a class="action-button secondary" href="{h(workflow_url("reset-data.yml"))}">取得データを削除する</a>
       </div>
-    """, "ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日8:00 JSTに前日分を取得します。")
+    """, "ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。「予想・ページ更新」はデータ取得を行わず、予想生成とHTML生成だけを実行します。")
     body += '<div class="grid two">'
     body += section("日別取得レース数", bar_chart(daily_chart, "race_date", "races", lambda v: f"{int(v)}R", 30))
     body += section("月別3連単平均配当", bar_chart(list(reversed(monthly)), "month", "avg_payout", yen, 12))
