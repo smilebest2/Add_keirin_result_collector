@@ -314,6 +314,51 @@
       color: var(--ink);
       font: inherit;
     }
+    .racer-filter-panel {
+      display: grid;
+      gap: 12px;
+    }
+    .racer-filter-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      gap: 10px;
+    }
+    .racer-filter-grid label {
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .racer-filter-grid select {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 9px;
+      background: #ffffff;
+      color: var(--ink);
+      font: inherit;
+    }
+    .kana-filter {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .kana-filter button {
+      min-height: 32px;
+      min-width: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--muted);
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .kana-filter button.active {
+      border-color: var(--accent);
+      background: var(--soft);
+      color: var(--accent);
+    }
     .hit {
       color: var(--accent);
       font-weight: 700;

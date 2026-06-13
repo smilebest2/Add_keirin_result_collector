@@ -84,8 +84,10 @@ def table(headers: list[str], data: list[dict], fields: list[str], empty="デー
     header_html = "".join(f"<th>{h(header)}</th>" for header in headers)
     body_html = ""
     for row in data:
-        class_attr = f' class="{h(row.get("_class"))}"' if row.get("_class") else ""
-        body_html += f"<tr{class_attr}>" + "".join(f"<td>{h(row.get(field))}</td>" for field in fields) + "</tr>"
+        attrs = f' class="{h(row.get("_class"))}"' if row.get("_class") else ""
+        for key, value in (row.get("_data") or {}).items():
+            attrs += f' data-{h(key)}="{h(value)}"'
+        body_html += f"<tr{attrs}>" + "".join(f"<td>{h(row.get(field))}</td>" for field in fields) + "</tr>"
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{body_html}</tbody></table>"
 
 
@@ -99,8 +101,10 @@ def rich_table(headers: list[str], data: list[dict], fields: list[str], empty="�
         for field in fields:
             value = row.get(field, "")
             cells.append(str(value) if is_safe_inline_html(value) else h(value))
-        class_attr = f' class="{h(row.get("_class"))}"' if row.get("_class") else ""
-        body_html += f"<tr{class_attr}>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
+        attrs = f' class="{h(row.get("_class"))}"' if row.get("_class") else ""
+        for key, value in (row.get("_data") or {}).items():
+            attrs += f' data-{h(key)}="{h(value)}"'
+        body_html += f"<tr{attrs}>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{body_html}</tbody></table>"
 
 
@@ -494,6 +498,51 @@ def page(title: str, active: str, body: str) -> str:
       background: #ffffff;
       color: var(--ink);
       font: inherit;
+    }}
+    .racer-filter-panel {{
+      display: grid;
+      gap: 12px;
+    }}
+    .racer-filter-grid {{
+      display: grid;
+      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      gap: 10px;
+    }}
+    .racer-filter-grid label {{
+      display: grid;
+      gap: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .racer-filter-grid select {{
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 9px;
+      background: #ffffff;
+      color: var(--ink);
+      font: inherit;
+    }}
+    .kana-filter {{
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }}
+    .kana-filter button {{
+      min-height: 32px;
+      min-width: 38px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--muted);
+      font-weight: 700;
+      cursor: pointer;
+    }}
+    .kana-filter button.active {{
+      border-color: var(--accent);
+      background: var(--soft);
+      color: var(--accent);
     }}
     .hit {{
       color: var(--accent);
@@ -988,6 +1037,110 @@ def render_racers(conn) -> str:
     def searchable_table(headers, data, fields):
         return table(headers, data, fields).replace("<table>", '<table class="racer-search-table">', 1)
 
+    def grade_group(value):
+        text = str(value or "").upper()
+        if text.startswith("S"):
+            return "S"
+        if text.startswith("A"):
+            return "A"
+        if text.startswith("L"):
+            return "L"
+        return ""
+
+    def kana_group(name):
+        text = str(name or "").strip()
+        if not text:
+            return ""
+        ch = text[0]
+        kanji_initial_groups = {
+            "阿": "あ", "安": "あ", "井": "あ", "伊": "あ", "岩": "あ", "石": "あ", "一": "あ", "網": "あ",
+            "上": "あ", "内": "あ", "宇": "あ", "浦": "あ", "梅": "あ", "右": "あ",
+            "大": "あ", "岡": "あ", "奥": "あ", "及": "あ", "小": "か", "加": "か", "勝": "か", "亀": "か",
+            "川": "か", "北": "か", "國": "か", "国": "か", "倉": "か", "黒": "か", "後": "か",
+            "佐": "さ", "坂": "さ", "塩": "さ", "白": "さ", "下": "さ", "隅": "さ",
+            "高": "た", "田": "た", "多": "た", "千": "た", "塚": "た", "土": "た", "寺": "た",
+            "出": "た", "戸": "た", "富": "た", "十": "た", "滝": "た", "瀧": "た", "當": "た",
+            "中": "な", "仲": "な", "夏": "な", "長": "な", "西": "な", "布": "な",
+            "原": "は", "早": "は", "服": "は", "橋": "は", "林": "は", "廣": "は", "広": "は",
+            "深": "は", "福": "は", "堀": "は",
+            "前": "ま", "増": "ま", "松": "ま", "真": "ま", "水": "ま", "三": "ま", "南": "ま",
+            "宮": "ま", "村": "ま", "森": "ま", "元": "ま", "守": "ま",
+            "山": "や", "横": "や", "吉": "や", "弓": "や",
+            "龍": "ら",
+            "渡": "わ",
+        }
+        if ch in kanji_initial_groups:
+            return kanji_initial_groups[ch]
+        groups = [
+            ("あ", "あいうえおアイウエオ"),
+            ("か", "かきくけこがぎぐげごカキクケコガギグゲゴ"),
+            ("さ", "さしすせそざじずぜぞサシスセソザジズゼゾ"),
+            ("た", "たちつてとだぢづでどタチツテトダヂヅデド"),
+            ("な", "なにぬねのナニヌネノ"),
+            ("は", "はひふへほばびぶべぼぱぴぷぺぽハヒフヘホバビブベボパピプペポ"),
+            ("ま", "まみむめもマミムメモ"),
+            ("や", "やゆよヤユヨ"),
+            ("ら", "らりるれろラリルレロ"),
+            ("わ", "わをんワヲン"),
+        ]
+        for key, chars in groups:
+            if ch in chars:
+                return key
+        return "その他"
+
+    latest_profile_rows = rows(conn, """
+        WITH profile_source AS (
+            SELECT e.racer_name, e.class AS latest_class, e.term AS latest_term,
+                   m.race_date, e.id, 1 AS source_priority
+            FROM race_entry e
+            LEFT JOIN race_master m ON m.race_id = e.race_id
+            WHERE e.racer_name IS NOT NULL AND e.racer_name != ''
+            UNION ALL
+            SELECT r.racer_name, r.class AS latest_class, r.term AS latest_term,
+                   m.race_date, r.id, 2 AS source_priority
+            FROM race_result r
+            LEFT JOIN race_master m ON m.race_id = r.race_id
+            WHERE r.racer_name IS NOT NULL AND r.racer_name != ''
+        ),
+        ranked AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY racer_name
+                     ORDER BY race_date DESC, source_priority ASC, id DESC
+                   ) AS rn
+            FROM profile_source
+        )
+        SELECT racer_name,
+               COALESCE(latest_class, '') AS latest_class,
+               COALESCE(latest_term, '') AS latest_term
+        FROM ranked
+        WHERE rn = 1
+    """)
+    latest_profiles = {row["racer_name"]: row for row in latest_profile_rows}
+
+    def enrich_rows(data):
+        for row in data:
+            name = row.get("racer_name")
+            profile = latest_profiles.get(name, {})
+            latest_class = profile.get("latest_class") or ""
+            latest_term = profile.get("latest_term") or ""
+            row["latest_class"] = latest_class
+            row["latest_term"] = latest_term
+            row["_data"] = {
+                "racer-name": name or "",
+                "grade-group": grade_group(latest_class),
+                "racer-class": latest_class,
+                "racer-term": latest_term,
+                "kana-group": kana_group(name),
+            }
+        return data
+
+    class_values = sorted({row["latest_class"] for row in latest_profile_rows if row.get("latest_class")})
+    term_values = sorted(
+        {str(row["latest_term"]) for row in latest_profile_rows if row.get("latest_term")},
+        key=lambda value: int(value) if str(value).isdigit() else 9999,
+    )
+
     base = """
         SELECT racer_name,
                COUNT(*) AS starts,
@@ -1003,12 +1156,12 @@ def render_racers(conn) -> str:
         WHERE racer_name IS NOT NULL AND racer_name != ''
         GROUP BY racer_name
     """
-    starts = with_rates(rows(conn, base + " ORDER BY starts DESC, racer_name LIMIT 100"))
-    wins = with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY win_rate DESC, starts DESC LIMIT 100", (threshold,)))
-    quinella = with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY quinella_rate DESC, starts DESC LIMIT 100", (threshold,)))
-    avg_rank = with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY avg_rank ASC, starts DESC LIMIT 100", (threshold,)))
+    starts = enrich_rows(with_rates(rows(conn, base + " ORDER BY starts DESC, racer_name LIMIT 100")))
+    wins = enrich_rows(with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY win_rate DESC, starts DESC LIMIT 100", (threshold,))))
+    quinella = enrich_rows(with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY quinella_rate DESC, starts DESC LIMIT 100", (threshold,))))
+    avg_rank = enrich_rows(with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY avg_rank ASC, starts DESC LIMIT 100", (threshold,))))
 
-    summary_rows = with_rates(rows(conn, """
+    summary_rows = enrich_rows(with_rates(rows(conn, """
         WITH base_result AS (
             SELECT r.racer_name,
                    COUNT(*) AS starts,
@@ -1069,9 +1222,9 @@ def render_racers(conn) -> str:
         LEFT JOIN main_role l ON l.racer_name = b.racer_name
         ORDER BY b.starts DESC, b.racer_name
         LIMIT 300
-    """))
+    """)))
 
-    line_role_rows = with_rates(rows(conn, """
+    line_role_rows = enrich_rows(with_rates(rows(conn, """
         SELECT racer_name,
                CASE
                  WHEN is_tanki = 1 THEN '単騎'
@@ -1091,9 +1244,9 @@ def render_racers(conn) -> str:
         GROUP BY racer_name, line_role
         ORDER BY starts DESC, racer_name, line_position
         LIMIT 300
-    """))
+    """)))
 
-    leader_followers_rows = with_rates(rows(conn, """
+    leader_followers_rows = enrich_rows(with_rates(rows(conn, """
         SELECT racer_name,
                followers,
                COUNT(*) AS starts,
@@ -1111,9 +1264,9 @@ def render_racers(conn) -> str:
         GROUP BY racer_name, followers
         ORDER BY starts DESC, racer_name, followers
         LIMIT 300
-    """))
+    """)))
 
-    bunsen_rows = with_rates(rows(conn, """
+    bunsen_rows = enrich_rows(with_rates(rows(conn, """
         SELECT racer_name,
                bunsen_count,
                COUNT(*) AS starts,
@@ -1130,16 +1283,16 @@ def render_racers(conn) -> str:
         GROUP BY racer_name, bunsen_count
         ORDER BY starts DESC, racer_name, bunsen_count
         LIMIT 300
-    """))
+    """)))
 
-    kimarite = rows(conn, """
+    kimarite = enrich_rows(rows(conn, """
         SELECT racer_name, kimarite, COUNT(*) AS count
         FROM race_result
         WHERE rank = 1 AND kimarite IS NOT NULL AND kimarite != ''
         GROUP BY racer_name, kimarite
         ORDER BY count DESC
         LIMIT 100
-    """)
+    """))
 
     search = """
         <div class="toolbar">
@@ -1161,12 +1314,102 @@ def render_racers(conn) -> str:
         </script>
     """
 
+    class_options = "".join(f'<option value="{h(value)}">{h(value)}</option>' for value in class_values)
+    term_options = "".join(f'<option value="{h(value)}">{h(value)}期</option>' for value in term_values)
+    kana_buttons = "".join(
+        f'<button type="button" data-kana="{h(value)}">{h(label)}</button>'
+        for value, label in [
+            ("", "すべて"),
+            ("あ", "あ"),
+            ("か", "か"),
+            ("さ", "さ"),
+            ("た", "た"),
+            ("な", "な"),
+            ("は", "は"),
+            ("ま", "ま"),
+            ("や", "や"),
+            ("ら", "ら"),
+            ("わ", "わ"),
+            ("その他", "その他"),
+        ]
+    )
+    search = f"""
+        <div class="racer-filter-panel">
+          <div class="toolbar">
+            <label for="racer-search">選手検索</label>
+            <input id="racer-search" type="search" placeholder="選手名・車番・ライン位置で検索" autocomplete="off">
+          </div>
+          <div class="racer-filter-grid">
+            <label>級班
+              <select id="racer-grade-group">
+                <option value="">すべて</option>
+                <option value="S">S級</option>
+                <option value="A">A級</option>
+                <option value="L">L級</option>
+              </select>
+            </label>
+            <label>詳細級班
+              <select id="racer-class">
+                <option value="">すべて</option>
+                {class_options}
+              </select>
+            </label>
+            <label>期別
+              <select id="racer-term">
+                <option value="">すべて</option>
+                {term_options}
+              </select>
+            </label>
+          </div>
+          <div class="kana-filter" id="racer-kana-filter">
+            {kana_buttons}
+          </div>
+        </div>
+        <script>
+        (() => {{
+          const input = document.getElementById("racer-search");
+          const gradeGroup = document.getElementById("racer-grade-group");
+          const racerClass = document.getElementById("racer-class");
+          const term = document.getElementById("racer-term");
+          const kanaButtons = Array.from(document.querySelectorAll("#racer-kana-filter button"));
+          if (!input || !gradeGroup || !racerClass || !term) return;
+          let kana = "";
+          const filter = () => {{
+            const keyword = input.value.trim().toLowerCase();
+            const gradeGroupValue = gradeGroup.value;
+            const classValue = racerClass.value;
+            const termValue = term.value;
+            document.querySelectorAll(".racer-search-table tbody tr").forEach((tr) => {{
+              const matchesKeyword = tr.textContent.toLowerCase().includes(keyword);
+              const matchesGradeGroup = !gradeGroupValue || tr.dataset.gradeGroup === gradeGroupValue;
+              const matchesClass = !classValue || tr.dataset.racerClass === classValue;
+              const matchesTerm = !termValue || tr.dataset.racerTerm === termValue;
+              const matchesKana = !kana || tr.dataset.kanaGroup === kana;
+              tr.style.display = matchesKeyword && matchesGradeGroup && matchesClass && matchesTerm && matchesKana ? "" : "none";
+            }});
+          }};
+          input.addEventListener("input", filter);
+          gradeGroup.addEventListener("change", filter);
+          racerClass.addEventListener("change", filter);
+          term.addEventListener("change", filter);
+          kanaButtons.forEach((button) => {{
+            button.addEventListener("click", () => {{
+              kana = button.dataset.kana || "";
+              kanaButtons.forEach((item) => item.classList.toggle("active", item === button));
+              filter();
+            }});
+          }});
+          if (kanaButtons[0]) kanaButtons[0].classList.add("active");
+        }})();
+        </script>
+    """
+
     body = f'<div class="inline-note">初期表示は出走数を重視します。勝率・連対率ランキングは出走{threshold}回以上に限定し、ライン条件別の表では出走30未満をサンプル不足として表示します。</div>'
     body += section("選手検索", search)
     body += section("選手別サマリー", searchable_table(
-        ["選手", "主な車番", "主なライン位置", "出走", "1着", "2連対", "3連対", "勝率", "2連対率", "3連対率", "平均着順", "最終日付", "注意"],
+        ["選手", "最新級班", "期別", "主な車番", "主なライン位置", "出走", "1着", "2連対", "3連対", "勝率", "2連対率", "3連対率", "平均着順", "最終日付", "注意"],
         summary_rows,
-        ["racer_name", "main_car_no", "main_line_role", "starts", "wins", "quinella", "top3", "win_rate_display", "quinella_rate_display", "top3_rate_display", "avg_rank_display", "latest_race_date", "sample_warning"],
+        ["racer_name", "latest_class", "latest_term", "main_car_no", "main_line_role", "starts", "wins", "quinella", "top3", "win_rate_display", "quinella_rate_display", "top3_rate_display", "avg_rank_display", "latest_race_date", "sample_warning"],
     ), "選手名で絞り込むと、下のライン条件別テーブルも同時に絞り込まれます。")
     body += section("ライン位置別成績", searchable_table(
         ["選手", "ライン位置", "出走", "1着", "2連対", "3連対", "勝率", "2連対率", "3連対率", "注意"],
