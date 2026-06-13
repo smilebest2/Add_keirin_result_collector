@@ -152,6 +152,77 @@ CREATE TABLE IF NOT EXISTS race_prediction_result (
     checked_at TEXT,
     FOREIGN KEY (prediction_id) REFERENCES race_prediction(id)
 );
+
+CREATE TABLE IF NOT EXISTS race_line_features (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    race_id TEXT,
+    race_date TEXT,
+    venue TEXT,
+    race_no INTEGER,
+    car_no INTEGER,
+    racer_name TEXT,
+    prefecture TEXT,
+    term INTEGER,
+    rank INTEGER,
+    line_no INTEGER,
+    line_size INTEGER,
+    line_position INTEGER,
+    position_label TEXT,
+    followers INTEGER,
+    is_leader INTEGER,
+    is_tanki INTEGER,
+    is_max_line INTEGER,
+    starter_count INTEGER,
+    line_count INTEGER,
+    bunsen_count INTEGER,
+    tanki_count INTEGER,
+    max_line_size INTEGER,
+    parse_status TEXT,
+    source_lineup_text TEXT,
+    created_at TEXT,
+    UNIQUE (race_id, car_no),
+    FOREIGN KEY (race_id) REFERENCES race_master(race_id)
+);
+
+CREATE TABLE IF NOT EXISTS racer_line_condition_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    racer_name TEXT,
+    prefecture TEXT,
+    term INTEGER,
+    condition_type TEXT,
+    condition_key TEXT,
+    line_position INTEGER,
+    position_label TEXT,
+    followers INTEGER,
+    bunsen_count INTEGER,
+    line_size INTEGER,
+    is_tanki INTEGER,
+    is_max_line INTEGER,
+    races INTEGER,
+    wins INTEGER,
+    seconds INTEGER,
+    thirds INTEGER,
+    top2 INTEGER,
+    top3 INTEGER,
+    win_rate REAL,
+    top2_rate REAL,
+    top3_rate REAL,
+    min_race_date TEXT,
+    max_race_date TEXT,
+    sample_race_ids TEXT,
+    updated_at TEXT,
+    UNIQUE (racer_name, prefecture, term, condition_type, condition_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_race_line_features_date
+    ON race_line_features(race_date);
+CREATE INDEX IF NOT EXISTS idx_race_line_features_racer
+    ON race_line_features(racer_name, prefecture, term);
+CREATE INDEX IF NOT EXISTS idx_racer_line_condition_stats_lookup
+    ON racer_line_condition_stats(
+        racer_name, prefecture, term, condition_type, line_position,
+        followers, bunsen_count
+    );
 """
 
 

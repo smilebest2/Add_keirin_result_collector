@@ -174,6 +174,7 @@ def page(title: str, active: str, body: str) -> str:
     ]
     nav_items.insert(6, ("predictions.html", "予想", "predictions"))
     nav_items.insert(7, ("prediction-results.html", "予想結果", "prediction-results"))
+    nav_items.insert(8, ("lineup-features.html", "ライン解析", "lineup-features"))
     nav = "".join(
         f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
         for href, label, key in nav_items
@@ -473,6 +474,27 @@ def page(title: str, active: str, body: str) -> str:
     .filters .check input {{
       min-height: 0;
     }}
+    .toolbar {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }}
+    .toolbar label {{
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }}
+    .toolbar input {{
+      min-height: 38px;
+      min-width: min(360px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: #ffffff;
+      color: var(--ink);
+      font: inherit;
+    }}
     .hit {{
       color: var(--accent);
       font-weight: 700;
@@ -675,6 +697,7 @@ def render_top(conn) -> str:
     """
     body += section("運用操作", f"""
       <div class="actions">
+        <a class="action-button" href="{h(workflow_url("analyze.yml"))}">予想・ページ更新</a>
         <a class="action-button" href="{h(workflow_url("collect.yml"))}">手動で取得する</a>
         <a class="action-button secondary" href="{h(workflow_url("reset-data.yml"))}">取得データを削除する</a>
       </div>
@@ -949,6 +972,245 @@ def render_payouts(conn) -> str:
 
 
 def render_racers(conn) -> str:
+    threshold = max(3, racer_threshold(conn))
+
+    def with_rates(data):
+        for row in data:
+            row["win_rate_display"] = pct(row.get("win_rate"))
+            row["quinella_rate_display"] = pct(row.get("quinella_rate"))
+            row["top3_rate_display"] = pct(row.get("top3_rate"))
+            row["top2_rate_display"] = pct(row.get("top2_rate"))
+            row["avg_rank_display"] = decimal(row.get("avg_rank"))
+            row["avg_time_display"] = decimal(row.get("avg_time"))
+            row["sample_warning"] = "サンプル不足" if int(row.get("starts") or 0) < 30 else ""
+        return data
+
+    def searchable_table(headers, data, fields):
+        return table(headers, data, fields).replace("<table>", '<table class="racer-search-table">', 1)
+
+    base = """
+        SELECT racer_name,
+               COUNT(*) AS starts,
+               SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN rank <= 2 THEN 1 ELSE 0 END) AS quinella,
+               SUM(CASE WHEN rank <= 3 THEN 1 ELSE 0 END) AS top3,
+               ROUND(AVG(rank), 2) AS avg_rank,
+               ROUND(AVG(CAST(NULLIF(time, '') AS REAL)), 2) AS avg_time,
+               ROUND(SUM(CASE WHEN rank = 1 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS win_rate,
+               ROUND(SUM(CASE WHEN rank <= 2 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS quinella_rate,
+               ROUND(SUM(CASE WHEN rank <= 3 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS top3_rate
+        FROM race_result
+        WHERE racer_name IS NOT NULL AND racer_name != ''
+        GROUP BY racer_name
+    """
+    starts = with_rates(rows(conn, base + " ORDER BY starts DESC, racer_name LIMIT 100"))
+    wins = with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY win_rate DESC, starts DESC LIMIT 100", (threshold,)))
+    quinella = with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY quinella_rate DESC, starts DESC LIMIT 100", (threshold,)))
+    avg_rank = with_rates(rows(conn, "SELECT * FROM (" + base + ") WHERE starts >= ? ORDER BY avg_rank ASC, starts DESC LIMIT 100", (threshold,)))
+
+    summary_rows = with_rates(rows(conn, """
+        WITH base_result AS (
+            SELECT r.racer_name,
+                   COUNT(*) AS starts,
+                   SUM(CASE WHEN r.rank = 1 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN r.rank <= 2 THEN 1 ELSE 0 END) AS quinella,
+                   SUM(CASE WHEN r.rank <= 3 THEN 1 ELSE 0 END) AS top3,
+                   ROUND(AVG(r.rank), 2) AS avg_rank,
+                   ROUND(SUM(CASE WHEN r.rank = 1 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS win_rate,
+                   ROUND(SUM(CASE WHEN r.rank <= 2 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS quinella_rate,
+                   ROUND(SUM(CASE WHEN r.rank <= 3 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS top3_rate,
+                   MAX(m.race_date) AS latest_race_date
+            FROM race_result r
+            LEFT JOIN race_master m ON m.race_id = r.race_id
+            WHERE r.racer_name IS NOT NULL AND r.racer_name != ''
+            GROUP BY r.racer_name
+        ),
+        main_car AS (
+            SELECT racer_name, car_no AS main_car_no
+            FROM (
+                SELECT racer_name, car_no, COUNT(*) AS cnt,
+                       ROW_NUMBER() OVER (PARTITION BY racer_name ORDER BY COUNT(*) DESC, car_no) AS rn
+                FROM race_result
+                WHERE racer_name IS NOT NULL AND racer_name != '' AND car_no IS NOT NULL
+                GROUP BY racer_name, car_no
+            )
+            WHERE rn = 1
+        ),
+        main_role AS (
+            SELECT racer_name, line_role AS main_line_role
+            FROM (
+                SELECT racer_name,
+                       CASE
+                         WHEN is_tanki = 1 THEN '単騎'
+                         WHEN line_position = 1 THEN '先頭'
+                         WHEN line_position = 2 THEN '番手'
+                         ELSE '三番手以降'
+                       END AS line_role,
+                       COUNT(*) AS cnt,
+                       ROW_NUMBER() OVER (
+                         PARTITION BY racer_name
+                         ORDER BY COUNT(*) DESC,
+                                  CASE
+                                    WHEN is_tanki = 1 THEN 4
+                                    WHEN line_position = 1 THEN 1
+                                    WHEN line_position = 2 THEN 2
+                                    ELSE 3
+                                  END
+                       ) AS rn
+                FROM race_line_features
+                WHERE racer_name IS NOT NULL AND racer_name != ''
+                GROUP BY racer_name, line_role
+            )
+            WHERE rn = 1
+        )
+        SELECT b.*, COALESCE(c.main_car_no, '') AS main_car_no, COALESCE(l.main_line_role, '') AS main_line_role
+        FROM base_result b
+        LEFT JOIN main_car c ON c.racer_name = b.racer_name
+        LEFT JOIN main_role l ON l.racer_name = b.racer_name
+        ORDER BY b.starts DESC, b.racer_name
+        LIMIT 300
+    """))
+
+    line_role_rows = with_rates(rows(conn, """
+        SELECT racer_name,
+               CASE
+                 WHEN is_tanki = 1 THEN '単騎'
+                 WHEN line_position = 1 THEN '先頭'
+                 WHEN line_position = 2 THEN '番手'
+                 ELSE '三番手以降'
+               END AS line_role,
+               COUNT(*) AS starts,
+               SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN rank <= 2 THEN 1 ELSE 0 END) AS quinella,
+               SUM(CASE WHEN rank <= 3 THEN 1 ELSE 0 END) AS top3,
+               ROUND(SUM(CASE WHEN rank = 1 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS win_rate,
+               ROUND(SUM(CASE WHEN rank <= 2 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS quinella_rate,
+               ROUND(SUM(CASE WHEN rank <= 3 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS top3_rate
+        FROM race_line_features
+        WHERE racer_name IS NOT NULL AND racer_name != '' AND rank IS NOT NULL
+        GROUP BY racer_name, line_role
+        ORDER BY starts DESC, racer_name, line_position
+        LIMIT 300
+    """))
+
+    leader_followers_rows = with_rates(rows(conn, """
+        SELECT racer_name,
+               followers,
+               COUNT(*) AS starts,
+               SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN rank <= 2 THEN 1 ELSE 0 END) AS quinella,
+               SUM(CASE WHEN rank <= 3 THEN 1 ELSE 0 END) AS top3,
+               ROUND(SUM(CASE WHEN rank = 1 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS win_rate,
+               ROUND(SUM(CASE WHEN rank <= 2 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS quinella_rate,
+               ROUND(SUM(CASE WHEN rank <= 3 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS top3_rate
+        FROM race_line_features
+        WHERE racer_name IS NOT NULL AND racer_name != ''
+          AND rank IS NOT NULL
+          AND is_tanki = 0
+          AND line_position = 1
+        GROUP BY racer_name, followers
+        ORDER BY starts DESC, racer_name, followers
+        LIMIT 300
+    """))
+
+    bunsen_rows = with_rates(rows(conn, """
+        SELECT racer_name,
+               bunsen_count,
+               COUNT(*) AS starts,
+               SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN rank <= 2 THEN 1 ELSE 0 END) AS quinella,
+               SUM(CASE WHEN rank <= 3 THEN 1 ELSE 0 END) AS top3,
+               ROUND(SUM(CASE WHEN rank = 1 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS win_rate,
+               ROUND(SUM(CASE WHEN rank <= 2 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS quinella_rate,
+               ROUND(SUM(CASE WHEN rank <= 3 THEN 100.0 ELSE 0 END) / COUNT(*), 1) AS top3_rate
+        FROM race_line_features
+        WHERE racer_name IS NOT NULL AND racer_name != ''
+          AND rank IS NOT NULL
+          AND bunsen_count >= 2
+        GROUP BY racer_name, bunsen_count
+        ORDER BY starts DESC, racer_name, bunsen_count
+        LIMIT 300
+    """))
+
+    kimarite = rows(conn, """
+        SELECT racer_name, kimarite, COUNT(*) AS count
+        FROM race_result
+        WHERE rank = 1 AND kimarite IS NOT NULL AND kimarite != ''
+        GROUP BY racer_name, kimarite
+        ORDER BY count DESC
+        LIMIT 100
+    """)
+
+    search = """
+        <div class="toolbar">
+          <label for="racer-search">選手検索</label>
+          <input id="racer-search" type="search" placeholder="選手名・車番・ライン位置で検索" autocomplete="off">
+        </div>
+        <script>
+        (() => {
+          const input = document.getElementById("racer-search");
+          if (!input) return;
+          const filter = () => {
+            const keyword = input.value.trim().toLowerCase();
+            document.querySelectorAll(".racer-search-table tbody tr").forEach((tr) => {
+              tr.style.display = tr.textContent.toLowerCase().includes(keyword) ? "" : "none";
+            });
+          };
+          input.addEventListener("input", filter);
+        })();
+        </script>
+    """
+
+    body = f'<div class="inline-note">初期表示は出走数を重視します。勝率・連対率ランキングは出走{threshold}回以上に限定し、ライン条件別の表では出走30未満をサンプル不足として表示します。</div>'
+    body += section("選手検索", search)
+    body += section("選手別サマリー", searchable_table(
+        ["選手", "主な車番", "主なライン位置", "出走", "1着", "2連対", "3連対", "勝率", "2連対率", "3連対率", "平均着順", "最終日付", "注意"],
+        summary_rows,
+        ["racer_name", "main_car_no", "main_line_role", "starts", "wins", "quinella", "top3", "win_rate_display", "quinella_rate_display", "top3_rate_display", "avg_rank_display", "latest_race_date", "sample_warning"],
+    ), "選手名で絞り込むと、下のライン条件別テーブルも同時に絞り込まれます。")
+    body += section("ライン位置別成績", searchable_table(
+        ["選手", "ライン位置", "出走", "1着", "2連対", "3連対", "勝率", "2連対率", "3連対率", "注意"],
+        line_role_rows,
+        ["racer_name", "line_role", "starts", "wins", "quinella", "top3", "win_rate_display", "quinella_rate_display", "top3_rate_display", "sample_warning"],
+    ), "先頭・番手・三番手以降・単騎で、その選手がどの役割で成績を出しているかを確認します。")
+    body += section("先頭時 後続人数別成績", searchable_table(
+        ["選手", "後続人数", "出走", "1着", "2連対", "3連対", "勝率", "2連対率", "3連対率", "注意"],
+        leader_followers_rows,
+        ["racer_name", "followers", "starts", "wins", "quinella", "top3", "win_rate_display", "quinella_rate_display", "top3_rate_display", "sample_warning"],
+    ), "先頭選手に限定し、後ろに何人いる時に強いかを確認します。")
+    body += section("分線数別成績", searchable_table(
+        ["選手", "分線数", "出走", "1着", "2連対", "3連対", "勝率", "2連対率", "3連対率", "注意"],
+        bunsen_rows,
+        ["racer_name", "bunsen_count", "starts", "wins", "quinella", "top3", "win_rate_display", "quinella_rate_display", "top3_rate_display", "sample_warning"],
+    ), "単騎を除いたライン数が2以上のレースだけを対象にしています。")
+    body += section("選手別出走数ランキング", searchable_table(
+        ["選手", "出走", "1着", "2連対", "3着内", "平均着順", "平均タイム"],
+        starts,
+        ["racer_name", "starts", "wins", "quinella", "top3", "avg_rank_display", "avg_time_display"],
+    ), "まずデータ量を確認するためのランキングです。出走数が増えるほど勝率や平均着順の信頼度が上がります。")
+    body += '<div class="grid two">'
+    body += section("選手別勝率", bar_chart(wins, "racer_name", "win_rate", pct, 20))
+    body += section("選手別平均着順", bar_chart(list(reversed(avg_rank[:20])), "racer_name", "avg_rank", lambda v: f"{v:.2f}"))
+    body += "</div>"
+    body += section("選手別勝率ランキング", searchable_table(
+        ["選手", "出走", "勝率", "1着", "2連対率", "3着内率", "平均着順"],
+        wins,
+        ["racer_name", "starts", "win_rate_display", "wins", "quinella_rate_display", "top3_rate_display", "avg_rank_display"],
+    ), f"出走{threshold}回以上のみ。出走1回の勝率100%は初期表示から外しています。")
+    body += section("選手別連対率ランキング", searchable_table(
+        ["選手", "出走", "2連対率", "2連対", "勝率", "平均着順"],
+        quinella,
+        ["racer_name", "starts", "quinella_rate_display", "quinella", "win_rate_display", "avg_rank_display"],
+    ))
+    body += section("選手別決まり手ランキング", searchable_table(
+        ["選手", "決まり手", "回数"],
+        kimarite,
+        ["racer_name", "kimarite", "count"],
+    ))
+    return page("選手分析", "racers", body)
+
+
+def render_racers_legacy(conn) -> str:
     threshold = max(3, racer_threshold(conn))
     base = """
         SELECT racer_name,
@@ -1867,6 +2129,318 @@ def render_prediction_results(conn) -> str:
     return page("予想結果", "prediction-results", body)
 
 
+def render_lineup_features(conn) -> str:
+    sample_rows = rows(conn, """
+        SELECT race_id, car_no, racer_name, line_no, line_size, line_position,
+               followers, is_tanki, is_max_line, bunsen_count
+        FROM race_line_features
+        ORDER BY race_date DESC, venue, race_no, line_no, line_position
+        LIMIT 200
+    """)
+    stat_rows = rows(conn, """
+        SELECT racer_name, condition_type, condition_key, races, wins, top2, top3,
+               win_rate, top2_rate, top3_rate
+        FROM racer_line_condition_stats
+        ORDER BY races DESC, condition_type, racer_name
+        LIMIT 200
+    """)
+    leader_rows = rows(conn, """
+        SELECT followers,
+               COUNT(DISTINCT race_id) AS race_count,
+               COUNT(*) AS races,
+               SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN rank <= 2 THEN 1 ELSE 0 END) AS top2,
+               SUM(CASE WHEN rank <= 3 THEN 1 ELSE 0 END) AS top3,
+               AVG(CASE WHEN rank = 1 THEN 1.0 ELSE 0 END) * 100 AS win_rate,
+               AVG(CASE WHEN rank <= 2 THEN 1.0 ELSE 0 END) * 100 AS top2_rate,
+               AVG(CASE WHEN rank <= 3 THEN 1.0 ELSE 0 END) * 100 AS top3_rate
+        FROM race_line_features
+        WHERE is_leader = 1 AND rank IS NOT NULL
+        GROUP BY followers
+        ORDER BY followers
+    """)
+    bunsen_rows = rows(conn, """
+        SELECT bunsen_count,
+               COUNT(DISTINCT race_id) AS race_count,
+               COUNT(*) AS races,
+               SUM(CASE WHEN rank = 1 THEN 1 ELSE 0 END) AS wins,
+               SUM(CASE WHEN rank <= 2 THEN 1 ELSE 0 END) AS top2,
+               SUM(CASE WHEN rank <= 3 THEN 1 ELSE 0 END) AS top3,
+               AVG(CASE WHEN rank = 1 THEN 1.0 ELSE 0 END) * 100 AS win_rate,
+               AVG(CASE WHEN rank <= 2 THEN 1.0 ELSE 0 END) * 100 AS top2_rate,
+               AVG(CASE WHEN rank <= 3 THEN 1.0 ELSE 0 END) * 100 AS top3_rate
+        FROM race_line_features
+        WHERE rank IS NOT NULL
+        GROUP BY bunsen_count
+        ORDER BY bunsen_count
+    """)
+    position_bunsen_rows = rows(conn, """
+        SELECT CASE
+                   WHEN is_tanki = 1 THEN '単騎'
+                   WHEN line_position = 1 THEN '先頭'
+                   WHEN line_position = 2 THEN '番手'
+                   WHEN line_position >= 3 THEN '三番手以降'
+                   ELSE '不明'
+               END AS line_role,
+               bunsen_count,
+               SUM(races) AS races,
+               SUM(wins) AS wins,
+               SUM(top2) AS top2,
+               SUM(top3) AS top3,
+               SUM(wins) * 100.0 / NULLIF(SUM(races), 0) AS win_rate,
+               SUM(top2) * 100.0 / NULLIF(SUM(races), 0) AS top2_rate,
+               SUM(top3) * 100.0 / NULLIF(SUM(races), 0) AS top3_rate
+        FROM racer_line_condition_stats
+        WHERE condition_type = 'exact_condition'
+          AND bunsen_count IS NOT NULL
+        GROUP BY line_role, bunsen_count
+        ORDER BY CASE line_role
+                     WHEN '先頭' THEN 1
+                     WHEN '番手' THEN 2
+                     WHEN '三番手以降' THEN 3
+                     WHEN '単騎' THEN 4
+                     ELSE 5
+                 END,
+                 bunsen_count
+    """)
+    position_effect_rows = rows(conn, """
+        SELECT CASE
+                   WHEN is_tanki = 1 OR position_label = 'tanki' THEN '単騎'
+                   WHEN line_position = 1 OR position_label = 'leader' THEN '先頭'
+                   WHEN line_position = 2 OR position_label = 'second' THEN '番手'
+                   WHEN line_position >= 3 OR position_label IN ('third', 'fourth_plus') THEN '三番手以降'
+                   ELSE '不明'
+               END AS line_role,
+               SUM(races) AS races,
+               SUM(wins) AS wins,
+               SUM(top2) AS top2,
+               SUM(top3) AS top3,
+               SUM(wins) * 100.0 / NULLIF(SUM(races), 0) AS win_rate,
+               SUM(top2) * 100.0 / NULLIF(SUM(races), 0) AS top2_rate,
+               SUM(top3) * 100.0 / NULLIF(SUM(races), 0) AS top3_rate
+        FROM racer_line_condition_stats
+        WHERE condition_type = 'position'
+        GROUP BY line_role
+        ORDER BY CASE line_role
+                     WHEN '先頭' THEN 1
+                     WHEN '番手' THEN 2
+                     WHEN '三番手以降' THEN 3
+                     WHEN '単騎' THEN 4
+                     ELSE 5
+                 END
+    """)
+    followers_effect_rows = rows(conn, """
+        SELECT followers,
+               SUM(races) AS races,
+               SUM(wins) AS wins,
+               SUM(top2) AS top2,
+               SUM(top3) AS top3,
+               SUM(wins) * 100.0 / NULLIF(SUM(races), 0) AS win_rate,
+               SUM(top2) * 100.0 / NULLIF(SUM(races), 0) AS top2_rate,
+               SUM(top3) * 100.0 / NULLIF(SUM(races), 0) AS top3_rate
+        FROM racer_line_condition_stats
+        WHERE condition_type = 'exact_condition'
+          AND followers IS NOT NULL
+        GROUP BY followers
+        ORDER BY followers
+    """)
+    leader_followers_effect_rows = rows(conn, """
+        SELECT followers,
+               SUM(races) AS races,
+               SUM(wins) AS wins,
+               SUM(top2) AS top2,
+               SUM(top3) AS top3,
+               SUM(wins) * 100.0 / NULLIF(SUM(races), 0) AS win_rate,
+               SUM(top2) * 100.0 / NULLIF(SUM(races), 0) AS top2_rate,
+               SUM(top3) * 100.0 / NULLIF(SUM(races), 0) AS top3_rate
+        FROM racer_line_condition_stats
+        WHERE condition_type = 'exact_condition'
+          AND line_position = 1
+          AND COALESCE(is_tanki, 0) = 0
+          AND followers IS NOT NULL
+        GROUP BY followers
+        ORDER BY followers
+    """)
+    position_followers_rows = rows(conn, """
+        SELECT CASE
+                   WHEN is_tanki = 1 THEN '単騎'
+                   WHEN line_position = 1 THEN '先頭'
+                   WHEN line_position = 2 THEN '番手'
+                   WHEN line_position >= 3 THEN '三番手以降'
+                   ELSE '不明'
+               END AS line_role,
+               followers,
+               SUM(races) AS races,
+               SUM(wins) AS wins,
+               SUM(top2) AS top2,
+               SUM(top3) AS top3,
+               SUM(wins) * 100.0 / NULLIF(SUM(races), 0) AS win_rate,
+               SUM(top2) * 100.0 / NULLIF(SUM(races), 0) AS top2_rate,
+               SUM(top3) * 100.0 / NULLIF(SUM(races), 0) AS top3_rate
+        FROM racer_line_condition_stats
+        WHERE condition_type = 'exact_condition'
+          AND followers IS NOT NULL
+        GROUP BY line_role, followers
+        ORDER BY CASE line_role
+                     WHEN '先頭' THEN 1
+                     WHEN '番手' THEN 2
+                     WHEN '三番手以降' THEN 3
+                     WHEN '単騎' THEN 4
+                     ELSE 5
+                 END,
+                 followers
+    """)
+    bunsen_reason_rows = rows(conn, """
+        SELECT bunsen_count, starter_count, line_count, tanki_count, max_line_size,
+               COUNT(DISTINCT race_id) AS race_count
+        FROM race_line_features
+        WHERE bunsen_count IN (0, 1)
+        GROUP BY bunsen_count, starter_count, line_count, tanki_count, max_line_size
+        ORDER BY bunsen_count, race_count DESC, starter_count
+    """)
+    low_bunsen_samples = rows(conn, """
+        SELECT DISTINCT race_id, venue, race_no, source_lineup_text,
+               starter_count, line_count, bunsen_count, tanki_count, max_line_size
+        FROM race_line_features
+        WHERE bunsen_count IN (0, 1)
+        ORDER BY bunsen_count, race_id DESC
+        LIMIT 20
+    """)
+
+    for row in stat_rows:
+        row["win_rate"] = pct(row.get("win_rate"))
+        row["top2_rate"] = pct(row.get("top2_rate"))
+        row["top3_rate"] = pct(row.get("top3_rate"))
+    for group in (leader_rows, bunsen_rows):
+        for row in group:
+            row["win_rate"] = pct(row.get("win_rate"))
+            row["top2_rate"] = pct(row.get("top2_rate"))
+            row["top3_rate"] = pct(row.get("top3_rate"))
+    for row in position_bunsen_rows:
+        row["win_rate"] = pct(row.get("win_rate"))
+        row["top2_rate"] = pct(row.get("top2_rate"))
+        row["top3_rate"] = pct(row.get("top3_rate"))
+    for group in (position_effect_rows, followers_effect_rows, leader_followers_effect_rows, position_followers_rows):
+        for row in group:
+            row["sample_warning"] = "サンプル不足" if (row.get("races") or 0) < 30 else ""
+            row["win_rate"] = pct(row.get("win_rate"))
+            row["top2_rate"] = pct(row.get("top2_rate"))
+            row["top3_rate"] = pct(row.get("top3_rate"))
+
+    body = section(
+        "race_line_features サンプル",
+        table(
+            ["race_id", "car_no", "racer_name", "line_no", "line_size", "line_position", "followers", "is_tanki", "is_max_line", "bunsen_count"],
+            sample_rows,
+            ["race_id", "car_no", "racer_name", "line_no", "line_size", "line_position", "followers", "is_tanki", "is_max_line", "bunsen_count"],
+        ),
+        "lineup_text から生成した直近明細です。1レース内の各選手ごとにライン位置、後続人数、分線数を確認します。",
+    )
+    body += section(
+        "racer_line_condition_stats 集計",
+        accordion_table(
+            ["選手名", "条件種別", "条件値", "出走数", "1着数", "2連対数", "3連対数", "勝率", "2連対率", "3連対率"],
+            stat_rows,
+            ["racer_name", "condition_type", "condition_key", "races", "wins", "top2", "top3", "win_rate", "top2_rate", "top3_rate"],
+            visible_count=50,
+        ),
+        "選手別・条件別の集計です。予想スコアへ反映する前に、条件値と母数の妥当性を確認します。",
+    )
+    body += section(
+        "leader_followers 集計",
+        table(
+            ["後続人数", "レース数", "サンプル数", "1着数", "2連対数", "3連対数", "勝率", "2連対率", "3連対率"],
+            leader_rows,
+            ["followers", "race_count", "races", "wins", "top2", "top3", "win_rate", "top2_rate", "top3_rate"],
+        ),
+        "先頭選手だけを対象に、後ろに付く人数別の成績を表示します。",
+    )
+    body += section(
+        "bunsen 算出ロジック",
+        """
+        <div class="rank-note">
+          bunsen_count は、単騎を除いたライン数です。line_size が2人以上のラインだけを数えます。
+          例: 3-2-2 は3分線、3-3-2-1 は単騎を除いて3分線、全員単騎は0分線です。
+          女子戦は全員単騎が自然に発生します。男子でも全員単騎や1本線+単騎のレースはあり得るため、
+          予想ロジックでは2分線以上を主対象、0分線・1分線は別枠または参考扱いにするのが安全です。
+        </div>
+        """,
+    )
+    body += section(
+        "ライン位置別成績ランキング",
+        table(
+            ["ライン位置", "出走数", "1着数", "勝率", "2連対率", "3連対率", "警告"],
+            position_effect_rows,
+            ["line_role", "races", "wins", "win_rate", "top2_rate", "top3_rate", "sample_warning"],
+        ),
+        "先頭・番手・三番手以降・単騎で有意差があるか確認します。出走数30未満はサンプル不足です。",
+    )
+    body += section(
+        "後続人数別成績",
+        table(
+            ["後続人数", "出走数", "1着数", "勝率", "2連対率", "3連対率", "警告"],
+            followers_effect_rows,
+            ["followers", "races", "wins", "win_rate", "top2_rate", "top3_rate", "sample_warning"],
+        ),
+        "全ライン位置を対象に、後続人数が増えるほど成績が向上するか確認します。",
+    )
+    body += section(
+        "先頭限定 後続人数別成績",
+        table(
+            ["後続人数", "出走数", "1着数", "勝率", "2連対率", "3連対率", "警告"],
+            leader_followers_effect_rows,
+            ["followers", "races", "wins", "win_rate", "top2_rate", "top3_rate", "sample_warning"],
+        ),
+        "ライン位置が先頭の選手だけを対象に、後ろ何人で強いかを直接確認します。",
+    )
+    body += section(
+        "ライン位置 × 後続人数",
+        table(
+            ["ライン位置", "後続人数", "出走数", "1着数", "勝率", "2連対率", "3連対率", "警告"],
+            position_followers_rows,
+            ["line_role", "followers", "races", "wins", "win_rate", "top2_rate", "top3_rate", "sample_warning"],
+        ),
+        "番手や三番手以降でも後続人数の影響があるか確認します。",
+    )
+    body += section(
+        "ライン位置別 × 分線数別 成績",
+        table(
+            ["ライン位置", "分線数", "出走数", "1着数", "2連対数", "3連対数", "勝率", "2連対率", "3連対率"],
+            position_bunsen_rows,
+            ["line_role", "bunsen_count", "races", "wins", "top2", "top3", "win_rate", "top2_rate", "top3_rate"],
+        ),
+        "racer_line_condition_stats の exact_condition を利用し、ライン内の役割ごとに分線数別成績を再集計しています。",
+    )
+    body += section(
+        "bunsen 集計",
+        table(
+            ["分線数", "レース数", "サンプル数", "1着数", "2連対数", "3連対数", "勝率", "2連対率", "3連対率"],
+            bunsen_rows,
+            ["bunsen_count", "race_count", "races", "wins", "top2", "top3", "win_rate", "top2_rate", "top3_rate"],
+        ),
+        "単騎を除いたライン数ごとの成績です。混戦度に応じた傾向確認に使います。",
+    )
+    body += section(
+        "0分線・1分線の発生理由",
+        table(
+            ["分線数", "出走人数", "ライン数", "単騎数", "最大ライン人数", "レース数"],
+            bunsen_reason_rows,
+            ["bunsen_count", "starter_count", "line_count", "tanki_count", "max_line_size", "race_count"],
+        ),
+        "0分線は全員単騎、1分線は2人以上のラインが1本だけで残りが単騎の構造です。",
+    )
+    body += section(
+        "0分線・1分線 サンプル",
+        table(
+            ["race_id", "会場", "R", "並び", "出走人数", "ライン数", "分線数", "単騎数", "最大ライン人数"],
+            low_bunsen_samples,
+            ["race_id", "venue", "race_no", "source_lineup_text", "starter_count", "line_count", "bunsen_count", "tanki_count", "max_line_size"],
+        ),
+        "集計対象として妥当か確認するため、低分線レースの実例を表示します。",
+    )
+    return page("ライン解析", "lineup-features", body)
+
+
 def render_race_detail_shell() -> str:
     body = """
     <section>
@@ -1979,6 +2553,7 @@ def export_all(output_dir: Path = DOCS_DIR, detail_dates: set[str] | None = None
             "races.html": render_races(conn),
             "predictions.html": render_predictions(conn),
             "prediction-results.html": render_prediction_results(conn),
+            "lineup-features.html": render_lineup_features(conn),
             "quality.html": render_quality(conn),
             "custom.html": render_custom_v2(conn),
             "race_detail.html": render_race_detail_shell(),

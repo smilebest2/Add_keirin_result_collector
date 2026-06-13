@@ -21,6 +21,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Build line features
+        run: python -m src.lineup_features
+
       - name: Evaluate predictions
         run: python -m src.prediction
 

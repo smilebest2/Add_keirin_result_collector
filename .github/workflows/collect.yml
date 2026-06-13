@@ -38,6 +38,9 @@ jobs:
       - name: Collect racecards
         run: python -m src.schedule
 
+      - name: Build line features
+        run: python -m src.lineup_features
+
       - name: Generate predictions
         run: python -m src.prediction
 
