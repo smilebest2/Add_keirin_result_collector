@@ -505,7 +505,7 @@ def page(title: str, active: str, body: str) -> str:
     }}
     .racer-filter-grid {{
       display: grid;
-      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
       gap: 10px;
     }}
     .racer-filter-grid label {{
@@ -543,6 +543,30 @@ def page(title: str, active: str, body: str) -> str:
       border-color: var(--accent);
       background: var(--soft);
       color: var(--accent);
+    }}
+    .selected-racer-control {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }}
+    .selected-racer-control strong {{
+      color: var(--ink);
+    }}
+    .selected-racer-control button {{
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--accent);
+      font-weight: 700;
+      cursor: pointer;
+      padding: 6px 10px;
+    }}
+    .racer-search-table tbody tr {{
+      cursor: pointer;
     }}
     .hit {{
       color: var(--accent);
@@ -1139,6 +1163,7 @@ def render_racers(conn) -> str:
     term_values = sorted(
         {str(row["latest_term"]) for row in latest_profile_rows if row.get("latest_term")},
         key=lambda value: int(value) if str(value).isdigit() else 9999,
+        reverse=True,
     )
 
     base = """
@@ -1354,8 +1379,14 @@ def render_racers(conn) -> str:
                 {class_options}
               </select>
             </label>
-            <label>期別
-              <select id="racer-term">
+            <label>期別From
+              <select id="racer-term-from">
+                <option value="">指定なし</option>
+                {term_options}
+              </select>
+            </label>
+            <label>期別To
+              <select id="racer-term-to">
                 <option value="">すべて</option>
                 {term_options}
               </select>
@@ -1364,40 +1395,70 @@ def render_racers(conn) -> str:
           <div class="kana-filter" id="racer-kana-filter">
             {kana_buttons}
           </div>
+          <div class="selected-racer-control">
+            <span id="selected-racer-label">選手単独表示: なし</span>
+            <button type="button" id="clear-racer-selection">絞り込み解除</button>
+          </div>
         </div>
         <script>
         (() => {{
           const input = document.getElementById("racer-search");
           const gradeGroup = document.getElementById("racer-grade-group");
           const racerClass = document.getElementById("racer-class");
-          const term = document.getElementById("racer-term");
+          const termFrom = document.getElementById("racer-term-from");
+          const termTo = document.getElementById("racer-term-to");
+          const selectedLabel = document.getElementById("selected-racer-label");
+          const clearSelection = document.getElementById("clear-racer-selection");
           const kanaButtons = Array.from(document.querySelectorAll("#racer-kana-filter button"));
-          if (!input || !gradeGroup || !racerClass || !term) return;
+          if (!input || !gradeGroup || !racerClass || !termFrom || !termTo || !selectedLabel || !clearSelection) return;
           let kana = "";
+          let selectedRacer = "";
           const filter = () => {{
             const keyword = input.value.trim().toLowerCase();
             const gradeGroupValue = gradeGroup.value;
             const classValue = racerClass.value;
-            const termValue = term.value;
+            const termFromValue = termFrom.value ? Number(termFrom.value) : null;
+            const termToValue = termTo.value ? Number(termTo.value) : null;
+            const termMin = termFromValue !== null && termToValue !== null ? Math.min(termFromValue, termToValue) : termFromValue;
+            const termMax = termFromValue !== null && termToValue !== null ? Math.max(termFromValue, termToValue) : termToValue;
             document.querySelectorAll(".racer-search-table tbody tr").forEach((tr) => {{
+              const rowTerm = tr.dataset.racerTerm ? Number(tr.dataset.racerTerm) : null;
               const matchesKeyword = tr.textContent.toLowerCase().includes(keyword);
               const matchesGradeGroup = !gradeGroupValue || tr.dataset.gradeGroup === gradeGroupValue;
               const matchesClass = !classValue || tr.dataset.racerClass === classValue;
-              const matchesTerm = !termValue || tr.dataset.racerTerm === termValue;
+              const matchesTermFrom = termMin === null || (rowTerm !== null && rowTerm >= termMin);
+              const matchesTermTo = termMax === null || (rowTerm !== null && rowTerm <= termMax);
               const matchesKana = !kana || tr.dataset.kanaGroup === kana;
-              tr.style.display = matchesKeyword && matchesGradeGroup && matchesClass && matchesTerm && matchesKana ? "" : "none";
+              const matchesSelectedRacer = !selectedRacer || tr.dataset.racerName === selectedRacer;
+              tr.style.display = matchesKeyword && matchesGradeGroup && matchesClass && matchesTermFrom && matchesTermTo && matchesKana && matchesSelectedRacer ? "" : "none";
             }});
+            selectedLabel.textContent = selectedRacer
+              ? "選手単独表示: " + selectedRacer
+              : "選手単独表示: なし";
           }};
           input.addEventListener("input", filter);
           gradeGroup.addEventListener("change", filter);
           racerClass.addEventListener("change", filter);
-          term.addEventListener("change", filter);
+          termFrom.addEventListener("change", filter);
+          termTo.addEventListener("change", filter);
           kanaButtons.forEach((button) => {{
             button.addEventListener("click", () => {{
               kana = button.dataset.kana || "";
               kanaButtons.forEach((item) => item.classList.toggle("active", item === button));
               filter();
             }});
+          }});
+          document.querySelectorAll(".racer-search-table tbody tr").forEach((tr) => {{
+            tr.addEventListener("click", () => {{
+              selectedRacer = tr.dataset.racerName || "";
+              if (selectedRacer) input.value = selectedRacer;
+              filter();
+            }});
+          }});
+          clearSelection.addEventListener("click", () => {{
+            selectedRacer = "";
+            input.value = "";
+            filter();
           }});
           if (kanaButtons[0]) kanaButtons[0].classList.add("active");
         }})();

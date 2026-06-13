@@ -320,7 +320,7 @@
     }
     .racer-filter-grid {
       display: grid;
-      grid-template-columns: repeat(3, minmax(120px, 1fr));
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
       gap: 10px;
     }
     .racer-filter-grid label {
@@ -358,6 +358,30 @@
       border-color: var(--accent);
       background: var(--soft);
       color: var(--accent);
+    }
+    .selected-racer-control {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .selected-racer-control strong {
+      color: var(--ink);
+    }
+    .selected-racer-control button {
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--accent);
+      font-weight: 700;
+      cursor: pointer;
+      padding: 6px 10px;
+    }
+    .racer-search-table tbody tr {
+      cursor: pointer;
     }
     .hit {
       color: var(--accent);
@@ -419,15 +443,25 @@
                 <option value="A1">A1</option><option value="A2">A2</option><option value="A3">A3</option><option value="L1">L1</option><option value="S1">S1</option><option value="S2">S2</option>
               </select>
             </label>
-            <label>期別
-              <select id="racer-term">
+            <label>期別From
+              <select id="racer-term-from">
+                <option value="">指定なし</option>
+                <option value="128">128期</option><option value="127">127期</option><option value="126">126期</option><option value="125">125期</option><option value="124">124期</option><option value="123">123期</option><option value="122">122期</option><option value="121">121期</option><option value="120">120期</option><option value="119">119期</option><option value="118">118期</option><option value="117">117期</option><option value="116">116期</option><option value="115">115期</option><option value="114">114期</option><option value="113">113期</option><option value="112">112期</option><option value="111">111期</option><option value="110">110期</option><option value="109">109期</option><option value="108">108期</option><option value="107">107期</option><option value="106">106期</option><option value="105">105期</option><option value="104">104期</option><option value="103">103期</option><option value="102">102期</option><option value="101">101期</option><option value="100">100期</option><option value="99">99期</option><option value="98">98期</option><option value="97">97期</option><option value="96">96期</option><option value="95">95期</option><option value="94">94期</option><option value="93">93期</option><option value="92">92期</option><option value="91">91期</option><option value="90">90期</option><option value="89">89期</option><option value="88">88期</option><option value="87">87期</option><option value="86">86期</option><option value="85">85期</option><option value="84">84期</option><option value="83">83期</option><option value="82">82期</option><option value="81">81期</option><option value="80">80期</option><option value="79">79期</option><option value="78">78期</option><option value="77">77期</option><option value="76">76期</option><option value="75">75期</option><option value="74">74期</option><option value="73">73期</option><option value="72">72期</option><option value="71">71期</option><option value="70">70期</option><option value="69">69期</option><option value="68">68期</option><option value="67">67期</option><option value="66">66期</option><option value="64">64期</option><option value="63">63期</option><option value="62">62期</option><option value="61">61期</option><option value="60">60期</option><option value="59">59期</option><option value="58">58期</option><option value="57">57期</option><option value="56">56期</option>
+              </select>
+            </label>
+            <label>期別To
+              <select id="racer-term-to">
                 <option value="">すべて</option>
-                <option value="56">56期</option><option value="57">57期</option><option value="58">58期</option><option value="59">59期</option><option value="60">60期</option><option value="61">61期</option><option value="62">62期</option><option value="63">63期</option><option value="64">64期</option><option value="66">66期</option><option value="67">67期</option><option value="68">68期</option><option value="69">69期</option><option value="70">70期</option><option value="71">71期</option><option value="72">72期</option><option value="73">73期</option><option value="74">74期</option><option value="75">75期</option><option value="76">76期</option><option value="77">77期</option><option value="78">78期</option><option value="79">79期</option><option value="80">80期</option><option value="81">81期</option><option value="82">82期</option><option value="83">83期</option><option value="84">84期</option><option value="85">85期</option><option value="86">86期</option><option value="87">87期</option><option value="88">88期</option><option value="89">89期</option><option value="90">90期</option><option value="91">91期</option><option value="92">92期</option><option value="93">93期</option><option value="94">94期</option><option value="95">95期</option><option value="96">96期</option><option value="97">97期</option><option value="98">98期</option><option value="99">99期</option><option value="100">100期</option><option value="101">101期</option><option value="102">102期</option><option value="103">103期</option><option value="104">104期</option><option value="105">105期</option><option value="106">106期</option><option value="107">107期</option><option value="108">108期</option><option value="109">109期</option><option value="110">110期</option><option value="111">111期</option><option value="112">112期</option><option value="113">113期</option><option value="114">114期</option><option value="115">115期</option><option value="116">116期</option><option value="117">117期</option><option value="118">118期</option><option value="119">119期</option><option value="120">120期</option><option value="121">121期</option><option value="122">122期</option><option value="123">123期</option><option value="124">124期</option><option value="125">125期</option><option value="126">126期</option><option value="127">127期</option><option value="128">128期</option>
+                <option value="128">128期</option><option value="127">127期</option><option value="126">126期</option><option value="125">125期</option><option value="124">124期</option><option value="123">123期</option><option value="122">122期</option><option value="121">121期</option><option value="120">120期</option><option value="119">119期</option><option value="118">118期</option><option value="117">117期</option><option value="116">116期</option><option value="115">115期</option><option value="114">114期</option><option value="113">113期</option><option value="112">112期</option><option value="111">111期</option><option value="110">110期</option><option value="109">109期</option><option value="108">108期</option><option value="107">107期</option><option value="106">106期</option><option value="105">105期</option><option value="104">104期</option><option value="103">103期</option><option value="102">102期</option><option value="101">101期</option><option value="100">100期</option><option value="99">99期</option><option value="98">98期</option><option value="97">97期</option><option value="96">96期</option><option value="95">95期</option><option value="94">94期</option><option value="93">93期</option><option value="92">92期</option><option value="91">91期</option><option value="90">90期</option><option value="89">89期</option><option value="88">88期</option><option value="87">87期</option><option value="86">86期</option><option value="85">85期</option><option value="84">84期</option><option value="83">83期</option><option value="82">82期</option><option value="81">81期</option><option value="80">80期</option><option value="79">79期</option><option value="78">78期</option><option value="77">77期</option><option value="76">76期</option><option value="75">75期</option><option value="74">74期</option><option value="73">73期</option><option value="72">72期</option><option value="71">71期</option><option value="70">70期</option><option value="69">69期</option><option value="68">68期</option><option value="67">67期</option><option value="66">66期</option><option value="64">64期</option><option value="63">63期</option><option value="62">62期</option><option value="61">61期</option><option value="60">60期</option><option value="59">59期</option><option value="58">58期</option><option value="57">57期</option><option value="56">56期</option>
               </select>
             </label>
           </div>
           <div class="kana-filter" id="racer-kana-filter">
             <button type="button" data-kana="">すべて</button><button type="button" data-kana="あ">あ</button><button type="button" data-kana="か">か</button><button type="button" data-kana="さ">さ</button><button type="button" data-kana="た">た</button><button type="button" data-kana="な">な</button><button type="button" data-kana="は">は</button><button type="button" data-kana="ま">ま</button><button type="button" data-kana="や">や</button><button type="button" data-kana="ら">ら</button><button type="button" data-kana="わ">わ</button><button type="button" data-kana="その他">その他</button>
+          </div>
+          <div class="selected-racer-control">
+            <span id="selected-racer-label">選手単独表示: なし</span>
+            <button type="button" id="clear-racer-selection">絞り込み解除</button>
           </div>
         </div>
         <script>
@@ -435,34 +469,60 @@
           const input = document.getElementById("racer-search");
           const gradeGroup = document.getElementById("racer-grade-group");
           const racerClass = document.getElementById("racer-class");
-          const term = document.getElementById("racer-term");
+          const termFrom = document.getElementById("racer-term-from");
+          const termTo = document.getElementById("racer-term-to");
+          const selectedLabel = document.getElementById("selected-racer-label");
+          const clearSelection = document.getElementById("clear-racer-selection");
           const kanaButtons = Array.from(document.querySelectorAll("#racer-kana-filter button"));
-          if (!input || !gradeGroup || !racerClass || !term) return;
+          if (!input || !gradeGroup || !racerClass || !termFrom || !termTo || !selectedLabel || !clearSelection) return;
           let kana = "";
+          let selectedRacer = "";
           const filter = () => {
             const keyword = input.value.trim().toLowerCase();
             const gradeGroupValue = gradeGroup.value;
             const classValue = racerClass.value;
-            const termValue = term.value;
+            const termFromValue = termFrom.value ? Number(termFrom.value) : null;
+            const termToValue = termTo.value ? Number(termTo.value) : null;
+            const termMin = termFromValue !== null && termToValue !== null ? Math.min(termFromValue, termToValue) : termFromValue;
+            const termMax = termFromValue !== null && termToValue !== null ? Math.max(termFromValue, termToValue) : termToValue;
             document.querySelectorAll(".racer-search-table tbody tr").forEach((tr) => {
+              const rowTerm = tr.dataset.racerTerm ? Number(tr.dataset.racerTerm) : null;
               const matchesKeyword = tr.textContent.toLowerCase().includes(keyword);
               const matchesGradeGroup = !gradeGroupValue || tr.dataset.gradeGroup === gradeGroupValue;
               const matchesClass = !classValue || tr.dataset.racerClass === classValue;
-              const matchesTerm = !termValue || tr.dataset.racerTerm === termValue;
+              const matchesTermFrom = termMin === null || (rowTerm !== null && rowTerm >= termMin);
+              const matchesTermTo = termMax === null || (rowTerm !== null && rowTerm <= termMax);
               const matchesKana = !kana || tr.dataset.kanaGroup === kana;
-              tr.style.display = matchesKeyword && matchesGradeGroup && matchesClass && matchesTerm && matchesKana ? "" : "none";
+              const matchesSelectedRacer = !selectedRacer || tr.dataset.racerName === selectedRacer;
+              tr.style.display = matchesKeyword && matchesGradeGroup && matchesClass && matchesTermFrom && matchesTermTo && matchesKana && matchesSelectedRacer ? "" : "none";
             });
+            selectedLabel.textContent = selectedRacer
+              ? "選手単独表示: " + selectedRacer
+              : "選手単独表示: なし";
           };
           input.addEventListener("input", filter);
           gradeGroup.addEventListener("change", filter);
           racerClass.addEventListener("change", filter);
-          term.addEventListener("change", filter);
+          termFrom.addEventListener("change", filter);
+          termTo.addEventListener("change", filter);
           kanaButtons.forEach((button) => {
             button.addEventListener("click", () => {
               kana = button.dataset.kana || "";
               kanaButtons.forEach((item) => item.classList.toggle("active", item === button));
               filter();
             });
+          });
+          document.querySelectorAll(".racer-search-table tbody tr").forEach((tr) => {
+            tr.addEventListener("click", () => {
+              selectedRacer = tr.dataset.racerName || "";
+              if (selectedRacer) input.value = selectedRacer;
+              filter();
+            });
+          });
+          clearSelection.addEventListener("click", () => {
+            selectedRacer = "";
+            input.value = "";
+            filter();
           });
           if (kanaButtons[0]) kanaButtons[0].classList.add("active");
         })();
