@@ -32,6 +32,8 @@ jobs:
           rm -rf docs/data/race_details
 
       - name: Generate empty analytics pages
+        env:
+          SITE_ENV: ${{ vars.SITE_ENV }}
         run: python -m src.analysis
 
       - name: Commit reset data

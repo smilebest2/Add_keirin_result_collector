@@ -28,6 +28,8 @@ jobs:
         run: python -m src.prediction
 
       - name: Generate analytics pages
+        env:
+          SITE_ENV: ${{ vars.SITE_ENV }}
         run: python -m src.analysis
 
       - name: Commit analytics pages

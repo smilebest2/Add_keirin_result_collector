@@ -45,6 +45,8 @@ jobs:
         run: python -m src.prediction
 
       - name: Export analytics pages
+        env:
+          SITE_ENV: ${{ vars.SITE_ENV }}
         run: python -m src.analysis
 
       - name: Commit collected data

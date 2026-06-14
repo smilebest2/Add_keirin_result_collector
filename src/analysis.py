@@ -165,7 +165,16 @@ def section(title: str, html_body: str, intro: str = "") -> str:
     return f"<section><h2>{h(title)}</h2>{lead}{html_body}</section>"
 
 
+def is_dev_environment() -> bool:
+    env = os.environ.get("SITE_ENV") or os.environ.get("APP_ENV") or ""
+    return env.lower() in {"dev", "development", "local"}
+
+
 def page(title: str, active: str, body: str) -> str:
+    is_dev = is_dev_environment()
+    title_prefix = "[DEV] " if is_dev else ""
+    body_class = ' class="is-dev"' if is_dev else ""
+    env_banner = '<div class="env-banner">DEV環境</div>' if is_dev else ""
     nav_items = [
         ("index.html", "TOP", "top"),
         ("venues.html", "会場分析", "venues"),
@@ -188,7 +197,7 @@ def page(title: str, active: str, body: str) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{h(title)} | 競輪統計</title>
+  <title>{h(title_prefix + title)} | 競輪統計</title>
   <style>
     :root {{
       --bg: #f5f7f9;
@@ -214,6 +223,22 @@ def page(title: str, active: str, body: str) -> str:
     header {{
       background: var(--panel);
       border-bottom: 1px solid var(--line);
+    }}
+    .env-banner {{
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #f59e0b;
+      color: #111827;
+      border-bottom: 1px solid #b45309;
+      padding: 7px 12px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }}
+    body.is-dev header {{
+      border-top: 4px solid #f59e0b;
     }}
     .wrap {{
       max-width: 1240px;
@@ -378,6 +403,26 @@ def page(title: str, active: str, body: str) -> str:
       flex-wrap: wrap;
       gap: 10px;
       padding: 14px 15px 16px;
+    }}
+    .operation-toggle {{
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      padding: 0;
+    }}
+    .operation-error {{
+      margin: 12px 15px 0;
+      color: #b91c1c;
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .operation-error:empty {{
+      display: none;
     }}
     .action-button {{
       display: inline-flex;
@@ -598,7 +643,8 @@ def page(title: str, active: str, body: str) -> str:
     }}
   </style>
 </head>
-<body>
+<body{body_class}>
+  {env_banner}
   <header>
     <div class="wrap">
       <h1>{h(title)}</h1>
@@ -610,6 +656,25 @@ def page(title: str, active: str, body: str) -> str:
       {body}
     </div>
   </main>
+  <script>
+    (() => {{
+      const toggle = document.querySelector("[data-operation-toggle]");
+      const actions = document.querySelector("[data-operation-actions]");
+      const error = document.querySelector("[data-operation-error]");
+      if (!toggle || !actions) return;
+
+      toggle.addEventListener("click", () => {{
+        const password = window.prompt("パスワードを入力してください");
+        if (password === "0415") {{
+          actions.hidden = false;
+          toggle.setAttribute("aria-expanded", "true");
+          if (error) error.textContent = "";
+          return;
+        }}
+        if (error) error.textContent = "パスワードが違います。";
+      }});
+    }})();
+  </script>
 </body>
 </html>
 """
@@ -729,33 +794,6 @@ def render_top(conn) -> str:
         ORDER BY month DESC
         LIMIT 12
     """, (TRIFECTA,))
-    recent = rows(conn, """
-        SELECT m.race_date, m.venue, m.race_no, m.race_title, m.start_time,
-               m.weather,
-               CASE WHEN m.wind_speed IS NULL THEN '' ELSE m.wind_speed || 'm/s' END AS wind_speed,
-               (
-                 SELECT r.car_no
-                 FROM race_result r
-                 WHERE r.race_id = m.race_id AND r.rank = 1
-                 ORDER BY r.id
-                 LIMIT 1
-               ) AS winner_car,
-               (
-                 SELECT r.racer_name
-                 FROM race_result r
-                 WHERE r.race_id = m.race_id AND r.rank = 1
-                 ORDER BY r.id
-                 LIMIT 1
-               ) AS winner,
-               p.payout AS trifecta_payout
-        FROM race_master m
-        LEFT JOIN payout p ON p.race_id = m.race_id AND p.bet_type = ?
-        ORDER BY m.race_date DESC, m.venue, m.race_no
-        LIMIT 60
-    """, (TRIFECTA,))
-    for row in recent:
-        row["trifecta_payout"] = yen(row["trifecta_payout"])
-
     body = f"""
     <div class="grid">
       <div class="card"><span>総レース数</span><strong>{h(number(s["races"]))}</strong></div>
@@ -768,22 +806,22 @@ def render_top(conn) -> str:
       <div class="card"><span>最終保存日時</span><strong>{h(s["latest_created"] or "-")}</strong></div>
     </div>
     """
-    body += section("運用操作", f"""
-      <div class="actions">
+    body += f"""
+    <section>
+      <h2><button class="operation-toggle" type="button" data-operation-toggle aria-expanded="false">運用操作</button></h2>
+      <p class="section-lead">ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日8:00 JSTに前日分を取得します。</p>
+      <p class="operation-error" data-operation-error></p>
+      <div class="actions" data-operation-actions hidden>
         <a class="action-button" href="{h(workflow_url("analyze.yml"))}">予想・ページ更新</a>
         <a class="action-button" href="{h(workflow_url("collect.yml"))}">手動で取得する</a>
         <a class="action-button secondary" href="{h(workflow_url("reset-data.yml"))}">取得データを削除する</a>
       </div>
-    """, "ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日8:00 JSTに前日分を取得します。")
+    </section>
+    """
     body += '<div class="grid two">'
     body += section("日別取得レース数", bar_chart(daily_chart, "race_date", "races", lambda v: f"{int(v)}R", 30))
     body += section("月別3連単平均配当", bar_chart(list(reversed(monthly)), "month", "avg_payout", yen, 12))
     body += "</div>"
-    body += section("最新レース一覧", table(
-        ["日付", "会場", "R", "レース名", "発走", "天候", "風速", "1着車番", "1着選手", "3連単"],
-        recent,
-        ["race_date", "venue", "race_no", "race_title", "start_time", "weather", "wind_speed", "winner_car", "winner", "trifecta_payout"],
-    ))
     return page("競輪統計 TOP", "top", body)
 
 
