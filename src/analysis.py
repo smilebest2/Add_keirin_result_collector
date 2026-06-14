@@ -286,10 +286,13 @@ def page(title: str, active: str, body: str) -> str:
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
-      overflow: hidden;
     }}
     .card {{
+      overflow: hidden;
       padding: 14px;
+    }}
+    section {{
+      overflow-x: auto;
     }}
     .card span {{
       display: block;
