@@ -129,6 +129,7 @@ CREATE TABLE IF NOT EXISTS race_prediction (
     score REAL,
     reason_text TEXT,
     score_detail_text TEXT,
+    score_detail_json TEXT,
     model_version TEXT,
     stake_amount INTEGER DEFAULT 100,
     created_at TEXT,
@@ -278,6 +279,7 @@ def init_db(conn: sqlite3.Connection) -> None:
         ensure_column(conn, "race_entry", column, column_type)
     for column, column_type in {
         "score_detail_text": "TEXT",
+        "score_detail_json": "TEXT",
         "model_version": "TEXT",
     }.items():
         ensure_column(conn, "race_prediction", column, column_type)

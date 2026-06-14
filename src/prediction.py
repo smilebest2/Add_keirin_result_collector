@@ -1,4 +1,6 @@
 import argparse
+import json
+import os
 from datetime import datetime, timedelta, timezone
 
 from .db import connect, init_db
@@ -22,6 +24,11 @@ TYPE_ANA = PREDICTION_TYPES[1]
 TYPE_HETEOJI = PREDICTION_TYPES[2]
 TYPE_KODO = PREDICTION_TYPES[3]
 TYPE_KANJO = PREDICTION_TYPES[4]
+
+
+def is_dev_environment() -> bool:
+    env = os.environ.get("SITE_ENV") or os.environ.get("APP_ENV") or ""
+    return env.lower() in {"dev", "development", "local"}
 
 
 def default_target_date() -> str:
@@ -307,6 +314,10 @@ def score_detail_text(prediction_type: str, picked: list[dict]) -> str:
     return " / ".join(parts)
 
 
+def score_detail_json(prediction_type: str, picked: list[dict]) -> str:
+    return json.dumps([score_detail(prediction_type, row) for row in picked], ensure_ascii=False)
+
+
 def take_unique(*groups: list[dict]) -> list[dict]:
     picked = []
     seen = set()
@@ -322,9 +333,9 @@ def take_unique(*groups: list[dict]) -> list[dict]:
     return picked
 
 
-def pick_combo(prediction_type: str, scored: list[dict]) -> tuple[list[int], float, str, str]:
+def pick_combo(prediction_type: str, scored: list[dict]) -> tuple[list[int], float, str, str, str]:
     if len(scored) < 3:
-        return [], 0, "出走表データが不足しています。", ""
+        return [], 0, "出走表データが不足しています。", "", ""
 
     base_ranked = sorted(scored, key=lambda row: row["base_score"], reverse=True)
     strategy_ranked = sorted(scored, key=lambda row: strategy_value(prediction_type, row), reverse=True)
@@ -351,7 +362,14 @@ def pick_combo(prediction_type: str, scored: list[dict]) -> tuple[list[int], flo
         reason += " 前日同会場データなしのため、累積会場傾向と選手成績を優先。"
     else:
         reason += " 前日同会場データがあるため、直近の会場傾向を補正。"
-    return combo, round(score_value, 3), reason, score_detail_text(prediction_type, ranked[:3])
+    picked = ranked[:3]
+    return (
+        combo,
+        round(score_value, 3),
+        reason,
+        score_detail_text(prediction_type, picked),
+        score_detail_json(prediction_type, picked),
+    )
 
 
 def confidence(score_value: float, has_same_venue_yesterday: bool) -> str:
@@ -375,7 +393,14 @@ def clear_date_predictions(conn, target_date: str) -> None:
     conn.execute("DELETE FROM race_prediction WHERE race_date = ?", (target_date,))
 
 
+def clear_analysis_details_if_needed(conn) -> None:
+    if is_dev_environment():
+        return
+    conn.execute("UPDATE race_prediction SET score_detail_json = NULL WHERE score_detail_json IS NOT NULL")
+
+
 def generate_predictions(conn, target_date: str) -> int:
+    include_analysis_detail = is_dev_environment()
     races = rows(
         conn,
         """
@@ -392,7 +417,7 @@ def generate_predictions(conn, target_date: str) -> int:
         candidates = []
         for race in races:
             scored = entry_scores(conn, race, target_date)
-            combo, score_value, reason, detail = pick_combo(prediction_type, scored)
+            combo, score_value, reason, detail, detail_json = pick_combo(prediction_type, scored)
             if len(combo) != 3:
                 continue
             has_same_venue_yesterday = any(row.get("same_venue_yesterday") for row in scored)
@@ -403,6 +428,7 @@ def generate_predictions(conn, target_date: str) -> int:
                 "confidence": confidence(score_value, has_same_venue_yesterday),
                 "reason": reason,
                 "detail": detail,
+                "detail_json": detail_json if include_analysis_detail else "",
             })
         candidates.sort(key=lambda row: row["score"], reverse=True)
         for candidate in candidates:
@@ -414,10 +440,10 @@ def generate_predictions(conn, target_date: str) -> int:
                     (
                         race_id, race_date, prediction_type, predicted_1st,
                         predicted_2nd, predicted_3rd, confidence, score,
-                        reason_text, score_detail_text, model_version,
+                        reason_text, score_detail_text, score_detail_json, model_version,
                         stake_amount, created_at
                     )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     race["race_id"],
@@ -430,6 +456,7 @@ def generate_predictions(conn, target_date: str) -> int:
                     candidate["score"],
                     candidate["reason"],
                     candidate["detail"],
+                    candidate["detail_json"],
                     MODEL_VERSION,
                     STAKE_AMOUNT,
                     datetime.now().isoformat(timespec="seconds"),
@@ -523,9 +550,12 @@ def run(target_date: str | None = None) -> dict:
     target_date = target_date or default_target_date()
     with connect() as conn:
         init_db(conn)
-        checked = evaluate_predictions(conn)
+        checked_before = evaluate_predictions(conn)
         saved = generate_predictions(conn, target_date)
-    return {"date": target_date, "predictions": saved, "checked": checked}
+        checked_after = evaluate_predictions(conn)
+        clear_analysis_details_if_needed(conn)
+        conn.commit()
+    return {"date": target_date, "predictions": saved, "checked": checked_before + checked_after}
 
 
 def main() -> None:

@@ -42,6 +42,8 @@ jobs:
         run: python -m src.lineup_features
 
       - name: Generate predictions
+        env:
+          SITE_ENV: ${{ vars.SITE_ENV }}
         run: python -m src.prediction
 
       - name: Export analytics pages

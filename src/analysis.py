@@ -15,10 +15,14 @@ from .db import connect, init_db
 DOCS_DIR = ROOT_DIR / "docs"
 TRIFECTA = "3連単"
 DEFAULT_GITHUB_REPOSITORY = "smilebest2/Add_keirin_result_collector"
+DEV_GITHUB_REPOSITORY = "smilebest2/Add_keirin_result_collector-dev"
+PREDICTION_ANALYSIS_ROW_LIMIT = 1500
+COMPONENT_ANALYSIS_ROW_LIMIT = 300
 
 
 def workflow_url(workflow_name: str) -> str:
-    repository = os.environ.get("GITHUB_REPOSITORY", DEFAULT_GITHUB_REPOSITORY)
+    default_repository = DEV_GITHUB_REPOSITORY if is_dev_environment() else DEFAULT_GITHUB_REPOSITORY
+    repository = os.environ.get("GITHUB_REPOSITORY", default_repository)
     return f"https://github.com/{repository}/actions/workflows/{workflow_name}"
 
 
@@ -2361,6 +2365,130 @@ def prediction_result_cell(row: dict | None) -> str:
     )
 
 
+def parse_score_detail_json(row: dict) -> list[dict]:
+    raw = row.get("score_detail_json")
+    if not raw:
+        return []
+    try:
+        items = json.loads(raw)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    return items if isinstance(items, list) else []
+
+
+def component_text(components: dict | None) -> str:
+    if not components:
+        return ""
+    return " / ".join(f"{key}{float(value):+.1f}" for key, value in components.items())
+
+
+def prediction_score_analysis_rows(prediction_rows: list[dict]) -> list[dict]:
+    analysis_rows = []
+    for row in prediction_rows:
+        details = parse_score_detail_json(row)
+        for index, detail in enumerate(details, start=1):
+            analysis_rows.append({
+                "race_date": row.get("race_date"),
+                "prediction_type": row.get("prediction_type"),
+                "race": f'{row.get("venue") or ""} {row.get("race_no") or ""}R',
+                "start_time": row.get("start_time"),
+                "confidence": row.get("confidence"),
+                "pick_order": index,
+                "car_no": detail.get("car_no"),
+                "racer_name": detail.get("racer_name"),
+                "base_score": decimal(detail.get("base_score"), 1),
+                "type_adjustment": decimal(detail.get("type_adjustment"), 1),
+                "final_score": decimal(detail.get("final_score"), 1),
+                "base_components": component_text(detail.get("base_components")),
+                "type_components": component_text(detail.get("type_components")),
+                "prediction_score": decimal(row.get("score"), 1),
+                "model_version": row.get("model_version"),
+            })
+    return analysis_rows
+
+
+def actual_rank_for_car(row: dict, car_no) -> str:
+    try:
+        car_no = int(car_no)
+    except (TypeError, ValueError):
+        return ""
+    for rank in [1, 2, 3]:
+        if row.get(f"actual_{rank}st") == car_no:
+            return str(rank)
+    if row.get("actual_2nd") == car_no:
+        return "2"
+    if row.get("actual_3rd") == car_no:
+        return "3"
+    return "-"
+
+
+def prediction_score_result_analysis_rows(result_rows: list[dict]) -> list[dict]:
+    analysis_rows = []
+    for row in result_rows:
+        details = parse_score_detail_json(row)
+        actual_top3 = {row.get("actual_1st"), row.get("actual_2nd"), row.get("actual_3rd")}
+        for index, detail in enumerate(details, start=1):
+            car_no = detail.get("car_no")
+            analysis_rows.append({
+                "race_date": row.get("race_date"),
+                "prediction_type": row.get("prediction_type"),
+                "race": f'{row.get("venue") or ""} {row.get("race_no") or ""}R',
+                "confidence": row.get("confidence"),
+                "pick_order": index,
+                "car_no": car_no,
+                "racer_name": detail.get("racer_name"),
+                "base_score": decimal(detail.get("base_score"), 1),
+                "type_adjustment": decimal(detail.get("type_adjustment"), 1),
+                "final_score": decimal(detail.get("final_score"), 1),
+                "type_components": component_text(detail.get("type_components")),
+                "actual_rank": actual_rank_for_car(row, car_no),
+                "is_first": "○" if row.get("actual_1st") == car_no else "×",
+                "is_top3": "○" if car_no in actual_top3 else "×",
+                "judgment": prediction_result_label(row),
+                "return_amount": yen(row.get("return_amount")),
+                "model_version": row.get("model_version"),
+            })
+    return analysis_rows
+
+
+def component_result_summary_rows(result_rows: list[dict]) -> list[dict]:
+    buckets: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    for row in result_rows:
+        actual_top3 = {row.get("actual_1st"), row.get("actual_2nd"), row.get("actual_3rd")}
+        for detail in parse_score_detail_json(row):
+            car_no = detail.get("car_no")
+            for component_type, components in [
+                ("基礎", detail.get("base_components") or {}),
+                ("タイプ補正", detail.get("type_components") or {}),
+            ]:
+                for name, value in components.items():
+                    buckets[(row.get("prediction_type"), component_type, name)].append({
+                        "value": float(value or 0),
+                        "is_first": row.get("actual_1st") == car_no,
+                        "is_top3": car_no in actual_top3,
+                        "hit_exact": bool(row.get("hit_exact")),
+                    })
+    summary_rows = []
+    for (prediction_type, component_type, component_name), items in sorted(
+        buckets.items(),
+        key=lambda item: (prediction_type_order(item[0][0]), item[0][1], item[0][2]),
+    ):
+        count = len(items)
+        if not count:
+            continue
+        summary_rows.append({
+            "prediction_type": prediction_type,
+            "component_type": component_type,
+            "component_name": component_name,
+            "count": count,
+            "avg_value": decimal(sum(item["value"] for item in items) / count, 1),
+            "first_rate": pct(sum(1 for item in items if item["is_first"]) * 100 / count),
+            "top3_rate": pct(sum(1 for item in items if item["is_top3"]) * 100 / count),
+            "exact_rate": pct(sum(1 for item in items if item["hit_exact"]) * 100 / count),
+        })
+    return summary_rows
+
+
 def prediction_rows_for_date(conn, target_date: str | None) -> list[dict]:
     if not target_date:
         return []
@@ -2599,6 +2727,14 @@ def render_predictions(conn) -> str:
         for prediction_type, summary in PREDICTION_TYPE_SUMMARY.items()
     )
     body += section("予想タイプの説明", f'<div class="prediction-type-grid">{type_notes}</div>')
+
+    if is_dev_environment() and prediction_rows:
+        analysis_rows = prediction_score_analysis_rows(prediction_rows)[:PREDICTION_ANALYSIS_ROW_LIMIT]
+        body += section("予想補正値 分析", table(
+            ["対象日", "予想タイプ", "レース", "発走", "信頼度", "買い目順", "車番", "選手", "基礎点", "タイプ補正", "最終点", "基礎内訳", "タイプ補正内訳", "予想スコア", "モデル"],
+            analysis_rows,
+            ["race_date", "prediction_type", "race", "start_time", "confidence", "pick_order", "car_no", "racer_name", "base_score", "type_adjustment", "final_score", "base_components", "type_components", "prediction_score", "model_version"],
+        ), "dev環境のみ表示します。買い目に入った選手ごとの基礎点、タイプ補正、最終点を分析するための表です。")
 
     if not prediction_rows:
         body += section("予想", '<div class="empty">予想データがありません。手動実行または毎朝の自動取得後に表示されます。</div>')
@@ -2868,6 +3004,20 @@ def render_prediction_results(conn) -> str:
         ["group", "predictions", "exact_rate", "first_rate", "avg_top3_count", "stake_total", "return_total", "roi"],
     ))
     body += "</div>"
+
+    if is_dev_environment():
+        result_analysis_rows = prediction_score_result_analysis_rows(result_rows)[:PREDICTION_ANALYSIS_ROW_LIMIT]
+        component_summary_rows = component_result_summary_rows(result_rows)[:COMPONENT_ANALYSIS_ROW_LIMIT]
+        body += section("予想補正値 結果分析", table(
+            ["対象日", "予想タイプ", "レース", "信頼度", "買い目順", "車番", "選手", "基礎点", "タイプ補正", "最終点", "タイプ補正内訳", "実着順", "1着", "3着内", "判定", "回収額", "モデル"],
+            result_analysis_rows,
+            ["race_date", "prediction_type", "race", "confidence", "pick_order", "car_no", "racer_name", "base_score", "type_adjustment", "final_score", "type_components", "actual_rank", "is_first", "is_top3", "judgment", "return_amount", "model_version"],
+        ), "dev環境のみ表示します。補正で選ばれた車番が実際に1着・3着内へ入ったかを確認するための表です。")
+        body += section("補正名別 成績分析", table(
+            ["予想タイプ", "補正種別", "補正名", "件数", "平均補正値", "1着率", "3着内率", "完全的中率"],
+            component_summary_rows,
+            ["prediction_type", "component_type", "component_name", "count", "avg_value", "first_rate", "top3_rate", "exact_rate"],
+        ), "dev環境のみ表示します。補正名ごとに、選ばれた車番が結果に結びついたかを集計します。")
 
     details = []
     for row in sorted(
