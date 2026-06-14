@@ -30,6 +30,22 @@
       background: var(--panel);
       border-bottom: 1px solid var(--line);
     }
+    .env-banner {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #f59e0b;
+      color: #111827;
+      border-bottom: 1px solid #b45309;
+      padding: 7px 12px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    body.is-dev header {
+      border-top: 4px solid #f59e0b;
+    }
     .wrap {
       max-width: 1240px;
       margin: 0 auto;
@@ -194,6 +210,26 @@
       gap: 10px;
       padding: 14px 15px 16px;
     }
+    .operation-toggle {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      padding: 0;
+    }
+    .operation-error {
+      margin: 12px 15px 0;
+      color: #b91c1c;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .operation-error:empty {
+      display: none;
+    }
     .action-button {
       display: inline-flex;
       align-items: center;
@@ -249,6 +285,44 @@
     .pill.ok {
       background: var(--soft);
       color: var(--accent);
+    }
+    .prediction-pick {
+      display: grid;
+      gap: 2px;
+      min-width: 118px;
+    }
+    .prediction-pick strong {
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .prediction-pick span {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .prediction-pick.empty {
+      color: var(--muted);
+      min-width: 88px;
+    }
+    .prediction-type-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 10px;
+      padding: 14px 15px 16px;
+    }
+    .prediction-type-note {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfd;
+    }
+    .prediction-type-note strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .prediction-type-note span {
+      color: var(--muted);
+      font-size: 13px;
     }
     tr.sample-low td {
       opacity: 0.48;
@@ -409,11 +483,13 @@
       table { min-width: 760px; }
       .bar-row { grid-template-columns: 96px minmax(130px, 1fr) 74px; }
       .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .prediction-type-grid { grid-template-columns: 1fr; }
       h1 { font-size: 24px; }
     }
   </style>
 </head>
 <body>
+
   <header>
     <div class="wrap">
       <h1>レース一覧</h1>
@@ -455,5 +531,24 @@
     </section>
     </div>
   </main>
+  <script>
+    (() => {
+      const toggle = document.querySelector("[data-operation-toggle]");
+      const actions = document.querySelector("[data-operation-actions]");
+      const error = document.querySelector("[data-operation-error]");
+      if (!toggle || !actions) return;
+
+      toggle.addEventListener("click", () => {
+        const password = window.prompt("パスワードを入力してください");
+        if (password === "0415") {
+          actions.hidden = false;
+          toggle.setAttribute("aria-expanded", "true");
+          if (error) error.textContent = "";
+          return;
+        }
+        if (error) error.textContent = "パスワードが違います。";
+      });
+    })();
+  </script>
 </body>
 </html>

@@ -327,7 +327,7 @@ def generate_predictions(conn, target_date: str) -> int:
                 "reason": reason,
             })
         candidates.sort(key=lambda row: row["score"], reverse=True)
-        for candidate in candidates[:3]:
+        for candidate in candidates:
             race = candidate["race"]
             combo = candidate["combo"]
             conn.execute(

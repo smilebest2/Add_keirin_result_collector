@@ -111,7 +111,7 @@ def rich_table(headers: list[str], data: list[dict], fields: list[str], empty="�
 def is_safe_inline_html(value) -> bool:
     if not isinstance(value, str):
         return False
-    return value.startswith("<a ") or (
+    return value.startswith("<a ") or value.startswith('<div class="prediction-pick') or (
         value.startswith('<span class="') and value.endswith("</span>") and "<script" not in value.lower()
     )
 
@@ -192,7 +192,7 @@ def page(title: str, active: str, body: str) -> str:
         f'<a class="{"active" if key == active else ""}" href="{href}">{label}</a>'
         for href, label, key in nav_items
     )
-    return f"""<!doctype html>
+    html = f"""<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
@@ -480,6 +480,44 @@ def page(title: str, active: str, body: str) -> str:
       background: var(--soft);
       color: var(--accent);
     }}
+    .prediction-pick {{
+      display: grid;
+      gap: 2px;
+      min-width: 118px;
+    }}
+    .prediction-pick strong {{
+      font-size: 14px;
+      white-space: nowrap;
+    }}
+    .prediction-pick span {{
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }}
+    .prediction-pick.empty {{
+      color: var(--muted);
+      min-width: 88px;
+    }}
+    .prediction-type-grid {{
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 10px;
+      padding: 14px 15px 16px;
+    }}
+    .prediction-type-note {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfd;
+    }}
+    .prediction-type-note strong {{
+      display: block;
+      margin-bottom: 4px;
+    }}
+    .prediction-type-note span {{
+      color: var(--muted);
+      font-size: 13px;
+    }}
     tr.sample-low td {{
       opacity: 0.48;
       background: #f8fafc;
@@ -639,6 +677,7 @@ def page(title: str, active: str, body: str) -> str:
       table {{ min-width: 760px; }}
       .bar-row {{ grid-template-columns: 96px minmax(130px, 1fr) 74px; }}
       .filters {{ grid-template-columns: repeat(2, minmax(120px, 1fr)); }}
+      .prediction-type-grid {{ grid-template-columns: 1fr; }}
       h1 {{ font-size: 24px; }}
     }}
   </style>
@@ -678,6 +717,7 @@ def page(title: str, active: str, body: str) -> str:
 </body>
 </html>
 """
+    return "\n".join(line.rstrip() for line in html.splitlines()) + "\n"
 
 
 def bar_chart(data: list[dict], label_field: str, value_field: str, value_format=str, limit=12) -> str:
@@ -2242,11 +2282,101 @@ def race_detail_payloads(conn, target_dates: set[str] | None = None) -> dict[str
     return payloads
 
 
+PREDICTION_TYPE_ORDER = [
+    "本命予想",
+    "穴予想",
+    "ヘテオジマーベリック予想",
+    "感情ブヒー予想",
+    "行動ヒヒーン予想",
+]
+
+PREDICTION_TYPE_SUMMARY = {
+    "本命予想": "総合上位",
+    "穴予想": "中位上昇",
+    "ヘテオジマーベリック予想": "反人気",
+    "感情ブヒー予想": "人気倒れ回避",
+    "行動ヒヒーン予想": "継続安定",
+}
+
+
+def prediction_type_order(prediction_type: str) -> int:
+    try:
+        return PREDICTION_TYPE_ORDER.index(prediction_type)
+    except ValueError:
+        return len(PREDICTION_TYPE_ORDER)
+
+
 def prediction_combo(row: dict, prefix: str = "predicted") -> str:
     values = [row.get(f"{prefix}_1st"), row.get(f"{prefix}_2nd"), row.get(f"{prefix}_3rd")]
     if any(value is None for value in values):
         return ""
     return "-".join(str(int(value)) for value in values)
+
+
+def prediction_pick_cell(row: dict | None) -> str:
+    if not row:
+        return '<div class="prediction-pick empty">-</div>'
+    confidence = h(row.get("confidence") or "C")
+    score = decimal(row.get("score"), 1)
+    return (
+        '<div class="prediction-pick">'
+        f'<strong>{h(prediction_combo(row))}</strong>'
+        f'<span>{confidence} / {h(score)}</span>'
+        '</div>'
+    )
+
+
+def prediction_rows_for_date(conn, target_date: str | None) -> list[dict]:
+    if not target_date:
+        return []
+    prediction_rows = rows(conn, """
+        SELECT p.*, s.venue, s.race_no, s.race_title, s.start_time, s.lineup_text,
+               (
+                 SELECT GROUP_CONCAT(e.car_no, ' ')
+                 FROM race_entry e
+                 WHERE e.race_id = p.race_id
+               ) AS entry_car_nos
+        FROM race_prediction p
+        LEFT JOIN race_schedule s ON s.race_id = p.race_id
+        WHERE p.race_date = ?
+        ORDER BY s.venue, s.race_no, p.prediction_type
+    """, (target_date,))
+    return sorted(
+        prediction_rows,
+        key=lambda row: (
+            row.get("venue") or "",
+            int(row.get("race_no") or 0),
+            prediction_type_order(row.get("prediction_type") or ""),
+        ),
+    )
+
+
+def featured_prediction_rows(prediction_rows: list[dict], per_type: int = 3) -> list[dict]:
+    by_type: dict[str, list[dict]] = {prediction_type: [] for prediction_type in PREDICTION_TYPE_ORDER}
+    for row in prediction_rows:
+        by_type.setdefault(row["prediction_type"], []).append(row)
+
+    featured = []
+    used_race_ids = set()
+    for prediction_type in [*PREDICTION_TYPE_ORDER, *sorted(set(by_type) - set(PREDICTION_TYPE_ORDER))]:
+        candidates = sorted(by_type.get(prediction_type, []), key=lambda row: row.get("score") or 0, reverse=True)
+        picked = []
+        for row in candidates:
+            if row.get("race_id") in used_race_ids:
+                continue
+            picked.append(row)
+            used_race_ids.add(row.get("race_id"))
+            if len(picked) == per_type:
+                break
+        if len(picked) < per_type:
+            for row in candidates:
+                if row in picked:
+                    continue
+                picked.append(row)
+                if len(picked) == per_type:
+                    break
+        featured.extend(picked)
+    return featured
 
 
 def format_lineup_text(lineup_text: str | None, entry_car_nos: str | None = None) -> str:
@@ -2289,10 +2419,23 @@ def format_lineup_text(lineup_text: str | None, entry_car_nos: str | None = None
     return lineup_text
 
 
+def compact_lineup_text(lineup_text: str | None, entry_car_nos: str | None = None) -> str:
+    text = format_lineup_text(lineup_text, entry_car_nos)
+    if len(text) <= 80:
+        return text
+    car_nos = sorted({
+        int(value)
+        for value in re.findall(r"\d+", entry_car_nos or "")
+        if 1 <= int(value) <= 9
+    })
+    return " ".join(str(car_no) for car_no in car_nos)
+
+
 def render_predictions(conn) -> str:
     target_date = scalar(conn, "SELECT MAX(race_date) FROM race_prediction")
     if not target_date:
         target_date = scalar(conn, "SELECT MAX(race_date) FROM race_schedule")
+    prediction_rows = prediction_rows_for_date(conn, target_date)
     summary_rows = rows(conn, """
         SELECT prediction_type, COUNT(*) AS predictions, ROUND(AVG(score), 1) AS avg_score
         FROM race_prediction
@@ -2311,48 +2454,117 @@ def render_predictions(conn) -> str:
       <div class="card"><span>生成日時</span><strong>{h(latest_created or "-")}</strong></div>
     </div>
     """
-    body += section("予想カテゴリ別サマリー", table(
+    body += section("サマリー", table(
         ["予想タイプ", "件数", "平均スコア"],
-        [{"prediction_type": row["prediction_type"], "predictions": row["predictions"], "avg_score": decimal(row["avg_score"], 1)} for row in summary_rows],
+        sorted(
+            [{"prediction_type": row["prediction_type"], "predictions": row["predictions"], "avg_score": decimal(row["avg_score"], 1)} for row in summary_rows],
+            key=lambda row: prediction_type_order(row["prediction_type"]),
+        ),
         ["prediction_type", "predictions", "avg_score"],
-    ), "各カテゴリ3レースまで表示します。オッズは使わず、選手成績、会場傾向、車番傾向、並び位置で算出します。")
+    ), "対象日の予想件数と平均スコアです。おすすめだけでなく、当日全レース予想も下に表示します。")
 
-    prediction_types = [row["prediction_type"] for row in rows(conn, """
-        SELECT DISTINCT prediction_type
-        FROM race_prediction
-        WHERE race_date = COALESCE(?, race_date)
-        ORDER BY prediction_type
-    """, (target_date,))]
-    for prediction_type in prediction_types:
-        prediction_rows = rows(conn, """
-            SELECT p.*, s.venue, s.race_no, s.race_title, s.start_time, s.lineup_text,
-                   (
-                     SELECT GROUP_CONCAT(e.car_no, ' ')
-                     FROM race_entry e
-                     WHERE e.race_id = p.race_id
-                   ) AS entry_car_nos
-            FROM race_prediction p
-            LEFT JOIN race_schedule s ON s.race_id = p.race_id
-            WHERE p.race_date = ? AND p.prediction_type = ?
-            ORDER BY p.score DESC, s.venue, s.race_no
-        """, (target_date, prediction_type))
-        display = []
-        for row in prediction_rows:
-            display.append({
+    featured_rows = featured_prediction_rows(prediction_rows)
+    if featured_rows:
+        featured_display = []
+        for row in featured_rows:
+            featured_display.append({
+                "prediction_type": row.get("prediction_type"),
                 "race": f'{row.get("venue") or ""} {row.get("race_no") or ""}R',
                 "start_time": row.get("start_time"),
                 "prediction": prediction_combo(row),
                 "confidence": f'<span class="pill">{h(row.get("confidence") or "C")}</span>',
                 "score": decimal(row.get("score"), 1),
-                "lineup_text": format_lineup_text(row.get("lineup_text"), row.get("entry_car_nos")),
+                "lineup_text": compact_lineup_text(row.get("lineup_text"), row.get("entry_car_nos")),
                 "reason_text": row.get("reason_text"),
             })
-        body += section(prediction_type, rich_table(
-            ["レース", "発走", "予想", "信頼度", "スコア", "並び", "根拠"],
-            display,
-            ["race", "start_time", "prediction", "confidence", "score", "lineup_text", "reason_text"],
-        ))
-    if not prediction_types:
+        body += section("今日の注目予想", rich_table(
+            ["予想タイプ", "レース", "発走", "予想", "信頼度", "スコア", "並び", "根拠"],
+            featured_display,
+            ["prediction_type", "race", "start_time", "prediction", "confidence", "score", "lineup_text", "reason_text"],
+        ), "各タイプ3件まで表示します。タイプ間で同じレースが続かないよう、可能な範囲で重複を抑えます。")
+
+    if prediction_rows:
+        venues = sorted({row.get("venue") for row in prediction_rows if row.get("venue")})
+        venue_options = "".join(f'<option value="{h(venue)}">{h(venue)}</option>' for venue in venues)
+        grouped: dict[str, dict] = {}
+        for row in prediction_rows:
+            race_id = row.get("race_id") or ""
+            group = grouped.setdefault(race_id, {
+                "race_id": race_id,
+                "venue": row.get("venue") or "",
+                "race_no": row.get("race_no") or "",
+                "race_title": row.get("race_title") or "",
+                "start_time": row.get("start_time") or "",
+                "lineup_text": compact_lineup_text(row.get("lineup_text"), row.get("entry_car_nos")),
+                "predictions": {},
+            })
+            group["predictions"][row.get("prediction_type")] = row
+
+        all_rows = []
+        for group in sorted(grouped.values(), key=lambda item: (item["venue"], int(item["race_no"] or 0))):
+            combos = [prediction_combo(item) for item in group["predictions"].values()]
+            duplicate = len(combos) != len(set(combos))
+            confidences = " ".join(sorted({str(item.get("confidence") or "C") for item in group["predictions"].values()}))
+            types = " ".join(group["predictions"].keys())
+            cells = {
+                "race": f'{group["venue"]} {group["race_no"]}R',
+                "start_time": group["start_time"],
+                "lineup_text": group["lineup_text"],
+                "duplicate": "あり" if duplicate else "なし",
+                "_data": {
+                    "venue": group["venue"],
+                    "confidence": confidences,
+                    "type": types,
+                    "duplicate": "yes" if duplicate else "no",
+                },
+            }
+            for prediction_type in PREDICTION_TYPE_ORDER:
+                cells[prediction_type] = prediction_pick_cell(group["predictions"].get(prediction_type))
+            all_rows.append(cells)
+
+        body += section("当日全レース予想", f"""
+          <div class="filters" id="prediction-filters">
+            <label>会場<select id="prediction-filter-venue"><option value="">すべて</option>{venue_options}</select></label>
+            <label>信頼度<select id="prediction-filter-confidence"><option value="">すべて</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select></label>
+            <label>予想タイプ<select id="prediction-filter-type"><option value="">すべて</option>{''.join(f'<option value="{h(item)}">{h(item)}</option>' for item in PREDICTION_TYPE_ORDER)}</select></label>
+            <label>重複買い目<select id="prediction-filter-duplicate"><option value="">すべて</option><option value="yes">あり</option><option value="no">なし</option></select></label>
+          </div>
+          {rich_table(
+              ["レース", "発走", "並び", *PREDICTION_TYPE_ORDER, "重複"],
+              all_rows,
+              ["race", "start_time", "lineup_text", *PREDICTION_TYPE_ORDER, "duplicate"],
+          ).replace("<table>", '<table id="all-race-predictions">', 1)}
+          <script>
+          (() => {{
+            const table = document.getElementById("all-race-predictions");
+            if (!table) return;
+            const venue = document.getElementById("prediction-filter-venue");
+            const confidence = document.getElementById("prediction-filter-confidence");
+            const type = document.getElementById("prediction-filter-type");
+            const duplicate = document.getElementById("prediction-filter-duplicate");
+            const rows = Array.from(table.querySelectorAll("tbody tr"));
+            const apply = () => {{
+              rows.forEach((row) => {{
+                const show =
+                  (!venue.value || row.dataset.venue === venue.value) &&
+                  (!confidence.value || (row.dataset.confidence || "").includes(confidence.value)) &&
+                  (!type.value || (row.dataset.type || "").includes(type.value)) &&
+                  (!duplicate.value || row.dataset.duplicate === duplicate.value);
+                row.hidden = !show;
+              }});
+            }};
+            [venue, confidence, type, duplicate].forEach((item) => item.addEventListener("change", apply));
+          }})();
+          </script>
+        """, "会場・R順で、各レースの5タイプの買い目を横並びで比較できます。")
+
+    type_notes = "".join(
+        f'<div class="prediction-type-note"><strong>{h(prediction_type.replace("予想", ""))}</strong><span>{h(summary)}</span></div>'
+        for prediction_type, summary in PREDICTION_TYPE_SUMMARY.items()
+    )
+    body += section("予想タイプの説明", f'<div class="prediction-type-grid">{type_notes}</div>')
+
+    if not prediction_rows:
         body += section("予想", '<div class="empty">予想データがありません。手動実行または毎朝の自動取得後に表示されます。</div>')
     return page("予想", "predictions", body)
 

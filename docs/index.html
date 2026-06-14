@@ -30,6 +30,22 @@
       background: var(--panel);
       border-bottom: 1px solid var(--line);
     }
+    .env-banner {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #f59e0b;
+      color: #111827;
+      border-bottom: 1px solid #b45309;
+      padding: 7px 12px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    body.is-dev header {
+      border-top: 4px solid #f59e0b;
+    }
     .wrap {
       max-width: 1240px;
       margin: 0 auto;
@@ -270,6 +286,44 @@
       background: var(--soft);
       color: var(--accent);
     }
+    .prediction-pick {
+      display: grid;
+      gap: 2px;
+      min-width: 118px;
+    }
+    .prediction-pick strong {
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .prediction-pick span {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .prediction-pick.empty {
+      color: var(--muted);
+      min-width: 88px;
+    }
+    .prediction-type-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 10px;
+      padding: 14px 15px 16px;
+    }
+    .prediction-type-note {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfd;
+    }
+    .prediction-type-note strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .prediction-type-note span {
+      color: var(--muted);
+      font-size: 13px;
+    }
     tr.sample-low td {
       opacity: 0.48;
       background: #f8fafc;
@@ -429,11 +483,13 @@
       table { min-width: 760px; }
       .bar-row { grid-template-columns: 96px minmax(130px, 1fr) 74px; }
       .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .prediction-type-grid { grid-template-columns: 1fr; }
       h1 { font-size: 24px; }
     }
   </style>
 </head>
 <body>
+
   <header>
     <div class="wrap">
       <h1>競輪統計 TOP</h1>
@@ -442,7 +498,7 @@
   </header>
   <main>
     <div class="wrap">
-      
+
     <div class="grid">
       <div class="card"><span>総レース数</span><strong>315</strong></div>
       <div class="card"><span>総選手数</span><strong>1,147</strong></div>
@@ -453,6 +509,7 @@
       <div class="card"><span>3連単最高配当</span><strong>319,080円</strong></div>
       <div class="card"><span>最終保存日時</span><strong>2026-06-13T23:42:31</strong></div>
     </div>
+
     <section>
       <h2><button class="operation-toggle" type="button" data-operation-toggle aria-expanded="false">運用操作</button></h2>
       <p class="section-lead">ボタン先のGitHub Actions画面で Run workflow を押すと実行できます。通常の自動取得は毎日8:00 JSTに前日分を取得します。</p>
@@ -462,7 +519,8 @@
         <a class="action-button" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/collect.yml">手動で取得する</a>
         <a class="action-button secondary" href="https://github.com/smilebest2/Add_keirin_result_collector/actions/workflows/reset-data.yml">取得データを削除する</a>
       </div>
-    </section><div class="grid two"><section><h2>日別取得レース数</h2><div class="chart"><div class="bar-row"><div class="bar-label" title="2026-06-10">2026-06-10</div><div class="bar-track"><div class="bar-fill" style="width:100.0%"></div></div><div class="bar-value">89R</div></div><div class="bar-row"><div class="bar-label" title="2026-06-11">2026-06-11</div><div class="bar-track"><div class="bar-fill" style="width:93.3%"></div></div><div class="bar-value">83R</div></div><div class="bar-row"><div class="bar-label" title="2026-06-12">2026-06-12</div><div class="bar-track"><div class="bar-fill" style="width:79.8%"></div></div><div class="bar-value">71R</div></div><div class="bar-row"><div class="bar-label" title="2026-06-13">2026-06-13</div><div class="bar-track"><div class="bar-fill" style="width:80.9%"></div></div><div class="bar-value">72R</div></div></div></section><section><h2>月別3連単平均配当</h2><div class="chart"><div class="bar-row"><div class="bar-label" title="2026-06">2026-06</div><div class="bar-track"><div class="bar-fill" style="width:100.0%"></div></div><div class="bar-value">15,929円</div></div></div></section></div>
+    </section>
+    <div class="grid two"><section><h2>日別取得レース数</h2><div class="chart"><div class="bar-row"><div class="bar-label" title="2026-06-10">2026-06-10</div><div class="bar-track"><div class="bar-fill" style="width:100.0%"></div></div><div class="bar-value">89R</div></div><div class="bar-row"><div class="bar-label" title="2026-06-11">2026-06-11</div><div class="bar-track"><div class="bar-fill" style="width:93.3%"></div></div><div class="bar-value">83R</div></div><div class="bar-row"><div class="bar-label" title="2026-06-12">2026-06-12</div><div class="bar-track"><div class="bar-fill" style="width:79.8%"></div></div><div class="bar-value">71R</div></div><div class="bar-row"><div class="bar-label" title="2026-06-13">2026-06-13</div><div class="bar-track"><div class="bar-fill" style="width:80.9%"></div></div><div class="bar-value">72R</div></div></div></section><section><h2>月別3連単平均配当</h2><div class="chart"><div class="bar-row"><div class="bar-label" title="2026-06">2026-06</div><div class="bar-track"><div class="bar-fill" style="width:100.0%"></div></div><div class="bar-value">15,929円</div></div></div></section></div>
     </div>
   </main>
   <script>

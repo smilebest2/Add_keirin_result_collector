@@ -30,6 +30,22 @@
       background: var(--panel);
       border-bottom: 1px solid var(--line);
     }
+    .env-banner {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #f59e0b;
+      color: #111827;
+      border-bottom: 1px solid #b45309;
+      padding: 7px 12px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    body.is-dev header {
+      border-top: 4px solid #f59e0b;
+    }
     .wrap {
       max-width: 1240px;
       margin: 0 auto;
@@ -194,6 +210,26 @@
       gap: 10px;
       padding: 14px 15px 16px;
     }
+    .operation-toggle {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      padding: 0;
+    }
+    .operation-error {
+      margin: 12px 15px 0;
+      color: #b91c1c;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .operation-error:empty {
+      display: none;
+    }
     .action-button {
       display: inline-flex;
       align-items: center;
@@ -249,6 +285,44 @@
     .pill.ok {
       background: var(--soft);
       color: var(--accent);
+    }
+    .prediction-pick {
+      display: grid;
+      gap: 2px;
+      min-width: 118px;
+    }
+    .prediction-pick strong {
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .prediction-pick span {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .prediction-pick.empty {
+      color: var(--muted);
+      min-width: 88px;
+    }
+    .prediction-type-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 10px;
+      padding: 14px 15px 16px;
+    }
+    .prediction-type-note {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfd;
+    }
+    .prediction-type-note strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .prediction-type-note span {
+      color: var(--muted);
+      font-size: 13px;
     }
     tr.sample-low td {
       opacity: 0.48;
@@ -409,11 +483,13 @@
       table { min-width: 760px; }
       .bar-row { grid-template-columns: 96px minmax(130px, 1fr) 74px; }
       .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .prediction-type-grid { grid-template-columns: 1fr; }
       h1 { font-size: 24px; }
     }
   </style>
 </head>
 <body>
+
   <header>
     <div class="wrap">
       <h1>予想結果</h1>
@@ -422,7 +498,7 @@
   </header>
   <main>
     <div class="wrap">
-      
+
     <div class="grid">
       <div class="card"><span>対象日</span><strong>2026-06-13</strong></div>
       <div class="card"><span>予想数</span><strong>15</strong></div>
@@ -432,5 +508,24 @@
     <section><h2>日別 予想タイプ別成績</h2><table><thead><tr><th>予想タイプ</th><th>予想数</th><th>完全的中</th><th>完全的中率</th><th>1着的中率</th><th>3着内一致平均</th><th>投資額</th><th>払戻額</th><th>回収率</th></tr></thead><tbody><tr><td>ヘテオジマーベリック予想</td><td>3</td><td>0</td><td>0.0%</td><td>0.0%</td><td>1.67</td><td>300円</td><td>0円</td><td>0.0%</td></tr><tr><td>感情ブヒー予想</td><td>3</td><td>0</td><td>0.0%</td><td>33.3%</td><td>1.67</td><td>300円</td><td>0円</td><td>0.0%</td></tr><tr><td>本命予想</td><td>3</td><td>0</td><td>0.0%</td><td>33.3%</td><td>1.67</td><td>300円</td><td>0円</td><td>0.0%</td></tr><tr><td>穴予想</td><td>3</td><td>0</td><td>0.0%</td><td>33.3%</td><td>1.33</td><td>300円</td><td>0円</td><td>0.0%</td></tr><tr><td>行動ヒヒーン予想</td><td>3</td><td>0</td><td>0.0%</td><td>33.3%</td><td>1.67</td><td>300円</td><td>0円</td><td>0.0%</td></tr></tbody></table></section><section><h2>累積 予想タイプ別成績</h2><p class="section-lead">1点100円購入想定です。完全的中時のみ3連単払戻を回収額に入れます。</p><table><thead><tr><th>予想タイプ</th><th>予想数</th><th>完全的中</th><th>完全的中率</th><th>1着的中率</th><th>3着内一致平均</th><th>投資額</th><th>払戻額</th><th>回収率</th></tr></thead><tbody><tr><td>行動ヒヒーン予想</td><td>9</td><td>0</td><td>0.0%</td><td>11.1%</td><td>1.56</td><td>900円</td><td>0円</td><td>0.0%</td></tr><tr><td>穴予想</td><td>9</td><td>0</td><td>0.0%</td><td>11.1%</td><td>1.11</td><td>900円</td><td>0円</td><td>0.0%</td></tr><tr><td>本命予想</td><td>9</td><td>0</td><td>0.0%</td><td>11.1%</td><td>1.56</td><td>900円</td><td>0円</td><td>0.0%</td></tr><tr><td>感情ブヒー予想</td><td>9</td><td>0</td><td>0.0%</td><td>22.2%</td><td>1.56</td><td>900円</td><td>0円</td><td>0.0%</td></tr><tr><td>ヘテオジマーベリック予想</td><td>9</td><td>0</td><td>0.0%</td><td>11.1%</td><td>1.44</td><td>900円</td><td>0円</td><td>0.0%</td></tr></tbody></table></section><section><h2>予想結果 明細</h2><table><thead><tr><th>予想タイプ</th><th>レース</th><th>予想</th><th>結果</th><th>判定</th><th>1着</th><th>3着内一致</th><th>3連単払戻</th><th>回収額</th><th>回収率</th></tr></thead><tbody><tr><td>ヘテオジマーベリック予想</td><td>2026-06-13 弥彦 7R</td><td>2-3-4</td><td>1-2-3</td><td><span class="miss">不的中</span></td><td>×</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>ヘテオジマーベリック予想</td><td>2026-06-13 武雄 4R</td><td>1-5-3</td><td>2-1-3</td><td><span class="miss">不的中</span></td><td>×</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>ヘテオジマーベリック予想</td><td>2026-06-13 武雄 7R</td><td>4-3-7</td><td>1-5-3</td><td><span class="miss">不的中</span></td><td>×</td><td>1</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>感情ブヒー予想</td><td>2026-06-13 弥彦 8R</td><td>3-4-6</td><td>4-1-5</td><td><span class="miss">不的中</span></td><td>×</td><td>1</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>感情ブヒー予想</td><td>2026-06-13 武雄 3R</td><td>1-2-3</td><td>1-2-4</td><td><span class="miss">不的中</span></td><td>○</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>感情ブヒー予想</td><td>2026-06-13 武雄 9R</td><td>1-5-3</td><td>2-1-3</td><td><span class="miss">不的中</span></td><td>×</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>本命予想</td><td>2026-06-13 弥彦 8R</td><td>3-4-6</td><td>4-1-5</td><td><span class="miss">不的中</span></td><td>×</td><td>1</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>本命予想</td><td>2026-06-13 武雄 3R</td><td>1-2-3</td><td>1-2-4</td><td><span class="miss">不的中</span></td><td>○</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>本命予想</td><td>2026-06-13 武雄 9R</td><td>1-5-3</td><td>2-1-3</td><td><span class="miss">不的中</span></td><td>×</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>穴予想</td><td>2026-06-13 岐阜 10R</td><td>7-5-6</td><td>7-6-2</td><td><span class="miss">不的中</span></td><td>○</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>穴予想</td><td>2026-06-13 弥彦 7R</td><td>3-4-5</td><td>1-2-3</td><td><span class="miss">不的中</span></td><td>×</td><td>1</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>穴予想</td><td>2026-06-13 弥彦 9R</td><td>7-2-6</td><td>5-2-3</td><td><span class="miss">不的中</span></td><td>×</td><td>1</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>行動ヒヒーン予想</td><td>2026-06-13 弥彦 8R</td><td>3-4-6</td><td>4-1-5</td><td><span class="miss">不的中</span></td><td>×</td><td>1</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>行動ヒヒーン予想</td><td>2026-06-13 武雄 3R</td><td>1-2-3</td><td>1-2-4</td><td><span class="miss">不的中</span></td><td>○</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr><tr><td>行動ヒヒーン予想</td><td>2026-06-13 武雄 9R</td><td>1-5-3</td><td>2-1-3</td><td><span class="miss">不的中</span></td><td>×</td><td>2</td><td></td><td>0円</td><td>0.0%</td></tr></tbody></table></section>
     </div>
   </main>
+  <script>
+    (() => {
+      const toggle = document.querySelector("[data-operation-toggle]");
+      const actions = document.querySelector("[data-operation-actions]");
+      const error = document.querySelector("[data-operation-error]");
+      if (!toggle || !actions) return;
+
+      toggle.addEventListener("click", () => {
+        const password = window.prompt("パスワードを入力してください");
+        if (password === "0415") {
+          actions.hidden = false;
+          toggle.setAttribute("aria-expanded", "true");
+          if (error) error.textContent = "";
+          return;
+        }
+        if (error) error.textContent = "パスワードが違います。";
+      });
+    })();
+  </script>
 </body>
 </html>

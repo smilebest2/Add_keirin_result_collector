@@ -30,6 +30,22 @@
       background: var(--panel);
       border-bottom: 1px solid var(--line);
     }
+    .env-banner {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #f59e0b;
+      color: #111827;
+      border-bottom: 1px solid #b45309;
+      padding: 7px 12px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+    body.is-dev header {
+      border-top: 4px solid #f59e0b;
+    }
     .wrap {
       max-width: 1240px;
       margin: 0 auto;
@@ -194,6 +210,26 @@
       gap: 10px;
       padding: 14px 15px 16px;
     }
+    .operation-toggle {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      text-align: left;
+      padding: 0;
+    }
+    .operation-error {
+      margin: 12px 15px 0;
+      color: #b91c1c;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .operation-error:empty {
+      display: none;
+    }
     .action-button {
       display: inline-flex;
       align-items: center;
@@ -249,6 +285,44 @@
     .pill.ok {
       background: var(--soft);
       color: var(--accent);
+    }
+    .prediction-pick {
+      display: grid;
+      gap: 2px;
+      min-width: 118px;
+    }
+    .prediction-pick strong {
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .prediction-pick span {
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .prediction-pick.empty {
+      color: var(--muted);
+      min-width: 88px;
+    }
+    .prediction-type-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 10px;
+      padding: 14px 15px 16px;
+    }
+    .prediction-type-note {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfcfd;
+    }
+    .prediction-type-note strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .prediction-type-note span {
+      color: var(--muted);
+      font-size: 13px;
     }
     tr.sample-low td {
       opacity: 0.48;
@@ -409,11 +483,13 @@
       table { min-width: 760px; }
       .bar-row { grid-template-columns: 96px minmax(130px, 1fr) 74px; }
       .filters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .prediction-type-grid { grid-template-columns: 1fr; }
       h1 { font-size: 24px; }
     }
   </style>
 </head>
 <body>
+
   <header>
     <div class="wrap">
       <h1>会場分析</h1>
@@ -429,5 +505,24 @@
     </section><section><h2>会場×車番 勝率ヒートマップ</h2><p class="section-lead">色が濃いほど、その会場で1着になった割合が高い車番です。</p><div class="heatmap"><table><thead><tr><th>会場</th><th>1番</th><th>2番</th><th>3番</th><th>4番</th><th>5番</th><th>6番</th><th>7番</th><th>8番</th><th>9番</th></tr></thead><tbody><tr><th>いわき平</th><td class="heat-2" title="出走 12">16.7%</td><td class="heat-1" title="出走 11">9.1%</td><td class="heat-2" title="出走 12">25.0%</td><td class="heat-2" title="出走 12">16.7%</td><td class="heat-1" title="出走 12">8.3%</td><td class="heat-0" title="出走 11">0.0%</td><td class="heat-3" title="出走 9">33.3%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>京王閣</th><td class="heat-2" title="出走 33">15.2%</td><td class="heat-3" title="出走 32">28.1%</td><td class="heat-2" title="出走 33">15.2%</td><td class="heat-1" title="出走 33">9.1%</td><td class="heat-2" title="出走 32">25.0%</td><td class="heat-0" title="出走 28">0.0%</td><td class="heat-1" title="出走 27">11.1%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>伊東</th><td class="heat-2" title="出走 12">25.0%</td><td class="heat-2" title="出走 12">16.7%</td><td class="heat-2" title="出走 12">25.0%</td><td class="heat-0" title="出走 12">0.0%</td><td class="heat-2" title="出走 12">16.7%</td><td class="heat-0" title="出走 12">0.0%</td><td class="heat-2" title="出走 12">16.7%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>別府</th><td class="heat-4" title="出走 18">38.9%</td><td class="heat-2" title="出走 17">17.6%</td><td class="heat-1" title="出走 18">5.6%</td><td class="heat-2" title="出走 18">16.7%</td><td class="heat-2" title="出走 18">16.7%</td><td class="heat-1" title="出走 18">5.6%</td><td class="heat-0" title="出走 17">0.0%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>前橋</th><td class="heat-2" title="出走 24">16.7%</td><td class="heat-2" title="出走 24">20.8%</td><td class="heat-2" title="出走 24">25.0%</td><td class="heat-1" title="出走 23">4.3%</td><td class="heat-2" title="出走 24">16.7%</td><td class="heat-1" title="出走 24">4.2%</td><td class="heat-2" title="出走 21">14.3%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>取手</th><td class="heat-2" title="出走 7">14.3%</td><td class="heat-3" title="出走 7">28.6%</td><td class="heat-0" title="出走 7">0.0%</td><td class="heat-0" title="出走 7">0.0%</td><td class="heat-4" title="出走 7">42.9%</td><td class="heat-0" title="出走 7">0.0%</td><td class="heat-2" title="出走 7">14.3%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>大垣</th><td class="heat-3" title="出走 7">28.6%</td><td class="heat-3" title="出走 7">28.6%</td><td class="heat-3" title="出走 7">28.6%</td><td class="heat-0" title="出走 7">0.0%</td><td class="heat-0" title="出走 7">0.0%</td><td class="heat-2" title="出走 7">14.3%</td><td class="heat-0" title="出走 4">0.0%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>奈良</th><td class="heat-4" title="出走 11">45.5%</td><td class="heat-0" title="出走 10">0.0%</td><td class="heat-0" title="出走 11">0.0%</td><td class="heat-3" title="出走 11">27.3%</td><td class="heat-2" title="出走 11">18.2%</td><td class="heat-0" title="出走 11">0.0%</td><td class="heat-1" title="出走 8">12.5%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>宇都宮</th><td class="heat-2" title="出走 17">23.5%</td><td class="heat-3" title="出走 18">27.8%</td><td class="heat-1" title="出走 18">5.6%</td><td class="heat-2" title="出走 18">22.2%</td><td class="heat-1" title="出走 18">11.1%</td><td class="heat-1" title="出走 15">6.7%</td><td class="heat-2" title="出走 14">14.3%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>岐阜</th><td class="heat-2" title="出走 35">22.9%</td><td class="heat-2" title="出走 36">19.4%</td><td class="heat-2" title="出走 35">14.3%</td><td class="heat-1" title="出走 36">8.3%</td><td class="heat-2" title="出走 36">16.7%</td><td class="heat-0" title="出走 34">0.0%</td><td class="heat-2" title="出走 36">13.9%</td><td class="heat-0" title="出走 32">0.0%</td><td class="heat-1" title="出走 33">6.1%</td></tr><tr><th>弥彦</th><td class="heat-4" title="出走 18">38.9%</td><td class="heat-2" title="出走 18">22.2%</td><td class="heat-1" title="出走 17">11.8%</td><td class="heat-1" title="出走 18">5.6%</td><td class="heat-1" title="出走 18">11.1%</td><td class="heat-1" title="出走 18">5.6%</td><td class="heat-1" title="出走 18">5.6%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>武雄</th><td class="heat-4" title="出走 18">44.4%</td><td class="heat-3" title="出走 18">27.8%</td><td class="heat-1" title="出走 18">5.6%</td><td class="heat-2" title="出走 18">16.7%</td><td class="heat-0" title="出走 18">0.0%</td><td class="heat-0" title="出走 17">0.0%</td><td class="heat-1" title="出走 17">5.9%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>玉野</th><td class="heat-3" title="出走 35">25.7%</td><td class="heat-1" title="出走 36">2.8%</td><td class="heat-2" title="出走 35">17.1%</td><td class="heat-1" title="出走 35">8.6%</td><td class="heat-2" title="出走 35">14.3%</td><td class="heat-1" title="出走 36">5.6%</td><td class="heat-1" title="出走 35">5.7%</td><td class="heat-1" title="出走 27">7.4%</td><td class="heat-2" title="出走 27">22.2%</td></tr><tr><th>防府</th><td class="heat-3" title="出走 11">36.4%</td><td class="heat-0" title="出走 11">0.0%</td><td class="heat-1" title="出走 11">9.1%</td><td class="heat-2" title="出走 11">18.2%</td><td class="heat-2" title="出走 11">18.2%</td><td class="heat-1" title="出走 11">9.1%</td><td class="heat-1" title="出走 11">9.1%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>青森</th><td class="heat-3" title="出走 21">28.6%</td><td class="heat-1" title="出走 21">4.8%</td><td class="heat-2" title="出走 21">14.3%</td><td class="heat-2" title="出走 21">19.0%</td><td class="heat-2" title="出走 21">19.0%</td><td class="heat-0" title="出走 21">0.0%</td><td class="heat-2" title="出走 19">15.8%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr><tr><th>静岡</th><td class="heat-2" title="出走 33">21.2%</td><td class="heat-1" title="出走 33">12.1%</td><td class="heat-2" title="出走 33">18.2%</td><td class="heat-1" title="出走 31">6.5%</td><td class="heat-2" title="出走 32">15.6%</td><td class="heat-2" title="出走 31">19.4%</td><td class="heat-2" title="出走 27">14.8%</td><td class="heat-0" title="出走 0"></td><td class="heat-0" title="出走 0"></td></tr></tbody></table></div></section><section><h2>荒れ度ランキング</h2><table><thead><tr><th>会場</th><th>レース数</th><th>3連単平均</th><th>3連単中央値</th><th>万車券率</th><th>荒れ度</th><th>母数</th></tr></thead><tbody><tr><td>岐阜</td><td>36</td><td>39,133円</td><td>11,715円</td><td>52.8%</td><td>56128</td><td><span class="pill ok">通常</span></td></tr><tr><td>玉野</td><td>36</td><td>24,026円</td><td>9,330円</td><td>47.2%</td><td>38076</td><td><span class="pill ok">通常</span></td></tr><tr class="sample-low"><td>取手</td><td>7</td><td>12,327円</td><td>11,580円</td><td>57.1%</td><td>29617</td><td><span class="pill warn">10件未満</span></td></tr><tr><td>武雄</td><td>18</td><td>17,949円</td><td>3,165円</td><td>27.8%</td><td>23894</td><td><span class="pill ok">通常</span></td></tr><tr><td>青森</td><td>21</td><td>19,231円</td><td>1,530円</td><td>23.8%</td><td>23141</td><td><span class="pill ok">通常</span></td></tr><tr><td>前橋</td><td>24</td><td>13,758円</td><td>3,510円</td><td>29.2%</td><td>20188</td><td><span class="pill ok">通常</span></td></tr><tr><td>別府</td><td>18</td><td>10,357円</td><td>5,700円</td><td>33.3%</td><td>19387</td><td><span class="pill ok">通常</span></td></tr><tr><td>弥彦</td><td>18</td><td>12,089円</td><td>4,200円</td><td>27.8%</td><td>19069</td><td><span class="pill ok">通常</span></td></tr><tr><td>京王閣</td><td>33</td><td>11,422円</td><td>2,830円</td><td>30.3%</td><td>17282</td><td><span class="pill ok">通常</span></td></tr><tr class="sample-low"><td>大垣</td><td>7</td><td>12,203円</td><td>1,210円</td><td>28.6%</td><td>16273</td><td><span class="pill warn">10件未満</span></td></tr><tr><td>静岡</td><td>33</td><td>8,402円</td><td>5,160円</td><td>24.2%</td><td>15982</td><td><span class="pill ok">通常</span></td></tr><tr><td>伊東</td><td>12</td><td>8,629円</td><td>5,550円</td><td>16.7%</td><td>15849</td><td><span class="pill ok">通常</span></td></tr><tr><td>宇都宮</td><td>18</td><td>10,390円</td><td>1,895円</td><td>27.8%</td><td>15065</td><td><span class="pill ok">通常</span></td></tr><tr><td>いわき平</td><td>12</td><td>7,183円</td><td>3,345円</td><td>16.7%</td><td>12198</td><td><span class="pill ok">通常</span></td></tr><tr><td>防府</td><td>11</td><td>3,265円</td><td>1,900円</td><td>9.1%</td><td>6075</td><td><span class="pill ok">通常</span></td></tr><tr><td>奈良</td><td>11</td><td>4,029円</td><td>1,120円</td><td>9.1%</td><td>6059</td><td><span class="pill ok">通常</span></td></tr></tbody></table></section>
     </div>
   </main>
+  <script>
+    (() => {
+      const toggle = document.querySelector("[data-operation-toggle]");
+      const actions = document.querySelector("[data-operation-actions]");
+      const error = document.querySelector("[data-operation-error]");
+      if (!toggle || !actions) return;
+
+      toggle.addEventListener("click", () => {
+        const password = window.prompt("パスワードを入力してください");
+        if (password === "0415") {
+          actions.hidden = false;
+          toggle.setAttribute("aria-expanded", "true");
+          if (error) error.textContent = "";
+          return;
+        }
+        if (error) error.textContent = "パスワードが違います。";
+      });
+    })();
+  </script>
 </body>
 </html>
