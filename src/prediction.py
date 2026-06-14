@@ -7,6 +7,7 @@ from .db import connect, init_db
 JST = timezone(timedelta(hours=9))
 TRIFECTA = "3騾｣蜊・"
 STAKE_AMOUNT = 100
+MODEL_VERSION = "explainable-v1"
 
 PREDICTION_TYPES = [
     "本命予想",
@@ -15,6 +16,12 @@ PREDICTION_TYPES = [
     "行動ヒヒーン予想",
     "感情ブヒー予想",
 ]
+
+TYPE_HONMEI = PREDICTION_TYPES[0]
+TYPE_ANA = PREDICTION_TYPES[1]
+TYPE_HETEOJI = PREDICTION_TYPES[2]
+TYPE_KODO = PREDICTION_TYPES[3]
+TYPE_KANJO = PREDICTION_TYPES[4]
 
 
 def default_target_date() -> str:
@@ -178,23 +185,33 @@ def entry_scores(conn, race: dict, target_date: str) -> list[dict]:
         context = car_context(conn, race, entry["car_no"], target_date)
         line_pos = lineup_position(conn, race["race_id"], entry["car_no"])
         line_bonus = 4 if line_pos == 1 else 2 if line_pos == 2 else 0
-        score_value = (
-            (entry.get("score") or 0)
-            + (entry.get("win_rate") or history.get("win_rate") or 0) * 0.32
-            + (entry.get("quinella_rate") or history.get("top2_rate") or 0) * 0.18
-            + (entry.get("trifecta_rate") or history.get("top3_rate") or 0) * 0.12
-            + (history.get("venue_top3_rate") or 0) * 0.08
-            + context["venue_win_rate"] * 0.06
-            + line_bonus
-        )
+        recent_component = (entry.get("score") or 0)
+        win_component = (entry.get("win_rate") or history.get("win_rate") or 0) * 0.32
+        top2_component = (entry.get("quinella_rate") or history.get("top2_rate") or 0) * 0.18
+        top3_component = (entry.get("trifecta_rate") or history.get("top3_rate") or 0) * 0.12
+        venue_component = (history.get("venue_top3_rate") or 0) * 0.08
+        car_component = context["venue_win_rate"] * 0.06
+        yesterday_component = 0
         if context["same_venue_yesterday"]:
-            score_value += context["yesterday_top3"] * 0.08
+            yesterday_component = context["yesterday_top3"] * 0.08
+        score_components = {
+            "直近": recent_component,
+            "勝率": win_component,
+            "連対": top2_component,
+            "3着内": top3_component,
+            "会場": venue_component,
+            "車番": car_component,
+            "ライン": line_bonus,
+            "前日同会場": yesterday_component,
+        }
+        score_value = sum(score_components.values())
         scored.append({
             **entry,
             **history,
             **context,
             "line_position": line_pos,
             "base_score": round(score_value, 3),
+            "score_components": {key: round(value, 3) for key, value in score_components.items()},
         })
     return scored
 
@@ -207,8 +224,7 @@ def avg_rank(row: dict) -> float:
     return float(row.get("avg_rank") or 99)
 
 
-def strategy_value(prediction_type: str, row: dict) -> float:
-    base = metric(row, "base_score")
+def strategy_adjustments(prediction_type: str, row: dict) -> dict[str, float]:
     win = metric(row, "win_rate")
     top2 = metric(row, "top2_rate")
     top3 = metric(row, "top3_rate")
@@ -219,15 +235,76 @@ def strategy_value(prediction_type: str, row: dict) -> float:
     line_pos = row.get("line_position")
     line_bonus = 6 if line_pos == 1 else 3 if line_pos == 2 else 0
 
-    if prediction_type == "本命予想":
-        return base + win * 0.25 + top2 * 0.12 + line_bonus
-    if prediction_type == "穴予想":
-        return base * 0.45 + venue_top3 * 0.7 + top3 * 0.45 + upset * 8 - win * 0.35
-    if prediction_type == "ヘテオジマーベリック予想":
-        return base * 0.35 + upset * 12 + top3 * 0.35 + venue_top3 * 0.25 - win * 0.2
-    if prediction_type == "行動ヒヒーン予想":
-        return base * 0.38 + activity * 1.8 - avg_rank(row) * 4 + top2 * 0.25
-    return base * 0.55 + top2 * 0.35 + top3 * 0.25 + line_bonus - fade * 6
+    if prediction_type == TYPE_HONMEI:
+        return {
+            "本命勝率": win * 0.25,
+            "本命連対": top2 * 0.12,
+            "ライン軸": line_bonus,
+        }
+    if prediction_type == TYPE_ANA:
+        return {
+            "中位上昇": venue_top3 * 0.35 + top3 * 0.25,
+            "反発実績": upset * 8,
+            "過剰本命抑制": -win * 0.25,
+        }
+    if prediction_type == TYPE_HETEOJI:
+        return {
+            "反人気実績": upset * 12,
+            "3着内余地": top3 * 0.2 + venue_top3 * 0.15,
+            "人気寄り抑制": -win * 0.3,
+        }
+    if prediction_type == TYPE_KODO:
+        return {
+            "継続出走": activity * 1.2,
+            "平均着順安定": -avg_rank(row) * 4,
+            "連対安定": top2 * 0.25,
+        }
+    return {
+        "安定連対": top2 * 0.35,
+        "3着内安定": top3 * 0.25,
+        "ライン保険": line_bonus,
+        "人気倒れ抑制": -fade * 6,
+    }
+
+
+def strategy_value(prediction_type: str, row: dict) -> float:
+    return metric(row, "base_score") + sum(strategy_adjustments(prediction_type, row).values())
+
+
+def score_detail(prediction_type: str, row: dict) -> dict:
+    adjustments = strategy_adjustments(prediction_type, row)
+    final_score = metric(row, "base_score") + sum(adjustments.values())
+    return {
+        "car_no": int(row["car_no"]),
+        "racer_name": row.get("racer_name") or "",
+        "base_score": round(metric(row, "base_score"), 1),
+        "type_adjustment": round(sum(adjustments.values()), 1),
+        "final_score": round(final_score, 1),
+        "base_components": {
+            key: round(value, 1)
+            for key, value in (row.get("score_components") or {}).items()
+            if abs(value) >= 0.1
+        },
+        "type_components": {
+            key: round(value, 1)
+            for key, value in adjustments.items()
+            if abs(value) >= 0.1
+        },
+    }
+
+
+def score_detail_text(prediction_type: str, picked: list[dict]) -> str:
+    details = [score_detail(prediction_type, row) for row in picked]
+    parts = []
+    for item in details:
+        type_text = ", ".join(f"{key}{value:+.1f}" for key, value in item["type_components"].items())
+        if not type_text:
+            type_text = "タイプ補正なし"
+        parts.append(
+            f'{item["car_no"]}号車 基礎{item["base_score"]:.1f} '
+            f'補正{item["type_adjustment"]:+.1f} 最終{item["final_score"]:.1f} ({type_text})'
+        )
+    return " / ".join(parts)
 
 
 def take_unique(*groups: list[dict]) -> list[dict]:
@@ -245,23 +322,23 @@ def take_unique(*groups: list[dict]) -> list[dict]:
     return picked
 
 
-def pick_combo(prediction_type: str, scored: list[dict]) -> tuple[list[int], float, str]:
+def pick_combo(prediction_type: str, scored: list[dict]) -> tuple[list[int], float, str, str]:
     if len(scored) < 3:
-        return [], 0, "出走表データが不足しています。"
+        return [], 0, "出走表データが不足しています。", ""
 
     base_ranked = sorted(scored, key=lambda row: row["base_score"], reverse=True)
     strategy_ranked = sorted(scored, key=lambda row: strategy_value(prediction_type, row), reverse=True)
 
-    if prediction_type == "本命予想":
+    if prediction_type == TYPE_HONMEI:
         ranked = base_ranked
         reason = "選手成績、会場傾向、車番傾向を総合して上位評価。"
-    elif prediction_type == "穴予想":
+    elif prediction_type == TYPE_ANA:
         ranked = take_unique(strategy_ranked[1:4], strategy_ranked, base_ranked)
         reason = "本命寄りになりすぎないよう、会場相性と3着内の余地がある中位上昇候補を重視。"
-    elif prediction_type == "ヘテオジマーベリック予想":
+    elif prediction_type == TYPE_HETEOJI:
         ranked = take_unique(strategy_ranked, base_ranked[2:], base_ranked)
         reason = "過去に人気を覆して上位に来た傾向と、3着内へ飛び込む余地を重視。"
-    elif prediction_type == "行動ヒヒーン予想":
+    elif prediction_type == TYPE_KODO:
         ranked = take_unique(strategy_ranked, base_ranked)
         reason = "出走数と継続性、安定した平均着順を重視。"
     else:
@@ -274,7 +351,7 @@ def pick_combo(prediction_type: str, scored: list[dict]) -> tuple[list[int], flo
         reason += " 前日同会場データなしのため、累積会場傾向と選手成績を優先。"
     else:
         reason += " 前日同会場データがあるため、直近の会場傾向を補正。"
-    return combo, round(score_value, 3), reason
+    return combo, round(score_value, 3), reason, score_detail_text(prediction_type, ranked[:3])
 
 
 def confidence(score_value: float, has_same_venue_yesterday: bool) -> str:
@@ -315,7 +392,7 @@ def generate_predictions(conn, target_date: str) -> int:
         candidates = []
         for race in races:
             scored = entry_scores(conn, race, target_date)
-            combo, score_value, reason = pick_combo(prediction_type, scored)
+            combo, score_value, reason, detail = pick_combo(prediction_type, scored)
             if len(combo) != 3:
                 continue
             has_same_venue_yesterday = any(row.get("same_venue_yesterday") for row in scored)
@@ -325,6 +402,7 @@ def generate_predictions(conn, target_date: str) -> int:
                 "score": score_value,
                 "confidence": confidence(score_value, has_same_venue_yesterday),
                 "reason": reason,
+                "detail": detail,
             })
         candidates.sort(key=lambda row: row["score"], reverse=True)
         for candidate in candidates:
@@ -336,9 +414,10 @@ def generate_predictions(conn, target_date: str) -> int:
                     (
                         race_id, race_date, prediction_type, predicted_1st,
                         predicted_2nd, predicted_3rd, confidence, score,
-                        reason_text, stake_amount, created_at
+                        reason_text, score_detail_text, model_version,
+                        stake_amount, created_at
                     )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     race["race_id"],
@@ -350,6 +429,8 @@ def generate_predictions(conn, target_date: str) -> int:
                     candidate["confidence"],
                     candidate["score"],
                     candidate["reason"],
+                    candidate["detail"],
+                    MODEL_VERSION,
                     STAKE_AMOUNT,
                     datetime.now().isoformat(timespec="seconds"),
                 ),

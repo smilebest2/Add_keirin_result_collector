@@ -2508,11 +2508,12 @@ def render_predictions(conn) -> str:
                 "score": decimal(row.get("score"), 1),
                 "lineup_text": compact_lineup_text(row.get("lineup_text"), row.get("entry_car_nos")),
                 "reason_text": row.get("reason_text"),
+                "score_detail_text": row.get("score_detail_text"),
             })
         body += section("今日の注目予想", rich_table(
-            ["予想タイプ", "レース", "発走", "予想", "信頼度", "スコア", "並び", "根拠"],
+            ["予想タイプ", "レース", "発走", "予想", "信頼度", "スコア", "並び", "根拠", "補正内訳"],
             featured_display,
-            ["prediction_type", "race", "start_time", "prediction", "confidence", "score", "lineup_text", "reason_text"],
+            ["prediction_type", "race", "start_time", "prediction", "confidence", "score", "lineup_text", "reason_text", "score_detail_text"],
         ), "各タイプ3件まで表示します。タイプ間で同じレースが続かないよう、可能な範囲で重複を抑えます。")
 
     if prediction_rows:
