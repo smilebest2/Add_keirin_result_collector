@@ -2326,6 +2326,38 @@ def prediction_pick_cell(row: dict | None) -> str:
     )
 
 
+def actual_combo(row: dict) -> str:
+    values = [row.get("actual_1st"), row.get("actual_2nd"), row.get("actual_3rd")]
+    if any(value is None for value in values):
+        return "-"
+    return "-".join(str(int(value)) for value in values)
+
+
+def prediction_result_label(row: dict) -> str:
+    if row.get("hit_exact"):
+        return "完全的中"
+    if row.get("hit_1st"):
+        return "1着的中"
+    if int(row.get("hit_top3_count") or 0) > 0:
+        return "3着内一致"
+    return "不的中"
+
+
+def prediction_result_cell(row: dict | None) -> str:
+    if not row:
+        return '<div class="prediction-pick empty">-</div>'
+    label = prediction_result_label(row)
+    combo = prediction_combo(row)
+    top3 = int(row.get("hit_top3_count") or 0)
+    return_amount = int(row.get("return_amount") or 0)
+    return (
+        '<div class="prediction-pick">'
+        f'<strong>{h(combo)}</strong>'
+        f'<span>{h(label)} / {top3}一致 / {h(yen(return_amount))}</span>'
+        '</div>'
+    )
+
+
 def prediction_rows_for_date(conn, target_date: str | None) -> list[dict]:
     if not target_date:
         return []
@@ -2575,6 +2607,28 @@ def render_prediction_results(conn) -> str:
         FROM race_prediction p
         JOIN race_prediction_result r ON r.prediction_id = p.id
     """)
+    result_rows = rows(conn, """
+        SELECT p.*, r.actual_1st, r.actual_2nd, r.actual_3rd,
+               r.hit_exact, r.hit_1st, r.hit_top2, r.hit_top3_count,
+               r.payout, r.stake_amount AS result_stake_amount,
+               r.return_amount, r.roi, r.checked_at,
+               COALESCE(s.venue, m.venue) AS venue,
+               COALESCE(s.race_no, m.race_no) AS race_no,
+               s.race_title,
+               s.start_time,
+               s.lineup_text,
+               (
+                 SELECT GROUP_CONCAT(e.car_no, ' ')
+                 FROM race_entry e
+                 WHERE e.race_id = p.race_id
+               ) AS entry_car_nos
+        FROM race_prediction p
+        JOIN race_prediction_result r ON r.prediction_id = p.id
+        LEFT JOIN race_schedule s ON s.race_id = p.race_id
+        LEFT JOIN race_master m ON m.race_id = p.race_id
+        WHERE p.race_date = COALESCE(?, p.race_date)
+        ORDER BY COALESCE(s.venue, m.venue), COALESCE(s.race_no, m.race_no), p.prediction_type
+    """, (latest_result_date,))
     daily_rows = rows(conn, """
         SELECT p.prediction_type,
                COUNT(*) AS predictions,
@@ -2589,7 +2643,6 @@ def render_prediction_results(conn) -> str:
         JOIN race_prediction_result r ON r.prediction_id = p.id
         WHERE p.race_date = COALESCE(?, p.race_date)
         GROUP BY p.prediction_type
-        ORDER BY p.prediction_type
     """, (latest_result_date,))
     total = rows(conn, """
         SELECT p.prediction_type,
@@ -2604,39 +2657,41 @@ def render_prediction_results(conn) -> str:
         FROM race_prediction p
         JOIN race_prediction_result r ON r.prediction_id = p.id
         GROUP BY p.prediction_type
-        ORDER BY roi DESC
     """)
-    detail_rows = rows(conn, """
-        SELECT p.prediction_type, p.race_date, m.venue, m.race_no,
-               p.predicted_1st, p.predicted_2nd, p.predicted_3rd,
-               r.actual_1st, r.actual_2nd, r.actual_3rd,
-               r.hit_exact, r.hit_1st, r.hit_top3_count,
-               r.payout, r.stake_amount, r.return_amount, r.roi
-        FROM race_prediction p
-        JOIN race_prediction_result r ON r.prediction_id = p.id
-        LEFT JOIN race_master m ON m.race_id = p.race_id
-        WHERE p.race_date = COALESCE(?, p.race_date)
-        ORDER BY p.race_date DESC, p.prediction_type, m.venue, m.race_no
-        LIMIT 100
-    """, (latest_result_date,))
 
     total_predictions = sum(row["predictions"] for row in daily_rows)
     total_hits = sum(row["exact_hits"] or 0 for row in daily_rows)
     stake_total = sum(row["stake_total"] or 0 for row in daily_rows)
     return_total = sum(row["return_total"] or 0 for row in daily_rows)
     roi_total = (return_total * 100 / stake_total) if stake_total else 0
+    race_count = len({row.get("race_id") for row in result_rows})
+    first_rate = (
+        sum(1 for row in result_rows if row.get("hit_1st")) * 100 / len(result_rows)
+        if result_rows else 0
+    )
+    avg_top3_count = (
+        sum(int(row.get("hit_top3_count") or 0) for row in result_rows) / len(result_rows)
+        if result_rows else 0
+    )
+    latest_checked = max((row.get("checked_at") or "" for row in result_rows), default="")
     body = f"""
     <div class="grid">
       <div class="card"><span>対象日</span><strong>{h(latest_result_date or "-")}</strong></div>
-      <div class="card"><span>予想数</span><strong>{h(number(total_predictions))}</strong></div>
+      <div class="card"><span>判定済みレース数</span><strong>{h(number(race_count))}</strong></div>
+      <div class="card"><span>予想件数</span><strong>{h(number(total_predictions))}</strong></div>
       <div class="card"><span>完全的中</span><strong>{h(number(total_hits))}</strong></div>
+      <div class="card"><span>1着的中率</span><strong>{h(pct(first_rate))}</strong></div>
+      <div class="card"><span>3着内一致平均</span><strong>{h(decimal(avg_top3_count, 2))}</strong></div>
+      <div class="card"><span>投資額</span><strong>{h(yen(stake_total))}</strong></div>
+      <div class="card"><span>払戻額</span><strong>{h(yen(return_total))}</strong></div>
       <div class="card"><span>回収率</span><strong>{h(pct(roi_total))}</strong></div>
+      <div class="card"><span>集計日時</span><strong>{h(latest_checked or "-")}</strong></div>
     </div>
     """
 
     def format_stats(items: list[dict]) -> list[dict]:
         formatted = []
-        for row in items:
+        for row in sorted(items, key=lambda item: prediction_type_order(item["prediction_type"])):
             formatted.append({
                 "prediction_type": row["prediction_type"],
                 "predictions": row["predictions"],
@@ -2650,6 +2705,118 @@ def render_prediction_results(conn) -> str:
             })
         return formatted
 
+    if not result_rows:
+        body += section("予想結果", '<div class="empty">判定済みの予想結果がありません。</div>')
+        return page("予想結果", "prediction-results", body)
+
+    featured_display = []
+    for row in featured_prediction_rows(result_rows):
+        featured_display.append({
+            "prediction_type": row.get("prediction_type"),
+            "race": f'{row.get("venue") or ""} {row.get("race_no") or ""}R',
+            "start_time": row.get("start_time"),
+            "predicted": prediction_combo(row),
+            "actual": actual_combo(row),
+            "judgment": f'<span class="{"hit" if row.get("hit_exact") else "miss"}">{h(prediction_result_label(row))}</span>',
+            "hit_1st": "○" if row.get("hit_1st") else "×",
+            "hit_top3_count": row.get("hit_top3_count"),
+            "return_amount": yen(row.get("return_amount")),
+            "roi": pct(row.get("roi")),
+        })
+    body += section("今日の注目予想 結果", rich_table(
+        ["予想タイプ", "レース", "発走", "予想", "結果", "判定", "1着", "3着内一致", "回収額", "回収率"],
+        featured_display,
+        ["prediction_type", "race", "start_time", "predicted", "actual", "judgment", "hit_1st", "hit_top3_count", "return_amount", "roi"],
+    ), "予想ページの注目予想と同じ条件で、各タイプ3件まで答え合わせします。")
+
+    venues = sorted({row.get("venue") for row in result_rows if row.get("venue")})
+    venue_options = "".join(f'<option value="{h(venue)}">{h(venue)}</option>' for venue in venues)
+    grouped: dict[str, dict] = {}
+    for row in result_rows:
+        race_id = row.get("race_id") or ""
+        group = grouped.setdefault(race_id, {
+            "race_id": race_id,
+            "venue": row.get("venue") or "",
+            "race_no": row.get("race_no") or "",
+            "start_time": row.get("start_time") or "",
+            "actual": actual_combo(row),
+            "lineup_text": compact_lineup_text(row.get("lineup_text"), row.get("entry_car_nos")),
+            "predictions": {},
+        })
+        group["predictions"][row.get("prediction_type")] = row
+
+    all_rows = []
+    duplicate_groups = {"あり": [], "なし": []}
+    for group in sorted(grouped.values(), key=lambda item: (item["venue"], int(item["race_no"] or 0))):
+        predictions = group["predictions"]
+        combos = [prediction_combo(item) for item in predictions.values()]
+        duplicate = len(combos) != len(set(combos))
+        confidences = " ".join(sorted({str(item.get("confidence") or "C") for item in predictions.values()}))
+        types = " ".join(predictions.keys())
+        judgments = " ".join(sorted({prediction_result_label(item) for item in predictions.values()}))
+        has_return = any(int(item.get("return_amount") or 0) > 0 for item in predictions.values())
+        duplicate_groups["あり" if duplicate else "なし"].extend(predictions.values())
+        cells = {
+            "race": f'{group["venue"]} {group["race_no"]}R',
+            "start_time": group["start_time"],
+            "actual": group["actual"],
+            "lineup_text": group["lineup_text"],
+            "duplicate": "あり" if duplicate else "なし",
+            "_data": {
+                "venue": group["venue"],
+                "confidence": confidences,
+                "type": types,
+                "judgment": judgments,
+                "duplicate": "yes" if duplicate else "no",
+                "return": "yes" if has_return else "no",
+            },
+        }
+        for prediction_type in PREDICTION_TYPE_ORDER:
+            cells[prediction_type] = prediction_result_cell(predictions.get(prediction_type))
+        all_rows.append(cells)
+
+    body += section("当日全レース予想 結果", f"""
+      <div class="filters" id="prediction-result-filters">
+        <label>会場<select id="result-filter-venue"><option value="">すべて</option>{venue_options}</select></label>
+        <label>信頼度<select id="result-filter-confidence"><option value="">すべて</option><option value="A">A</option><option value="B">B</option><option value="C">C</option></select></label>
+        <label>予想タイプ<select id="result-filter-type"><option value="">すべて</option>{''.join(f'<option value="{h(item)}">{h(item)}</option>' for item in PREDICTION_TYPE_ORDER)}</select></label>
+        <label>判定<select id="result-filter-judgment"><option value="">すべて</option><option value="完全的中">完全的中</option><option value="1着的中">1着的中</option><option value="3着内一致">3着内一致</option><option value="不的中">不的中</option></select></label>
+        <label>重複買い目<select id="result-filter-duplicate"><option value="">すべて</option><option value="yes">あり</option><option value="no">なし</option></select></label>
+        <label>回収<select id="result-filter-return"><option value="">すべて</option><option value="yes">あり</option><option value="no">なし</option></select></label>
+      </div>
+      {rich_table(
+          ["レース", "発走", "結果", "並び", *PREDICTION_TYPE_ORDER, "重複"],
+          all_rows,
+          ["race", "start_time", "actual", "lineup_text", *PREDICTION_TYPE_ORDER, "duplicate"],
+      ).replace("<table>", '<table id="all-race-prediction-results">', 1)}
+      <script>
+      (() => {{
+        const table = document.getElementById("all-race-prediction-results");
+        if (!table) return;
+        const venue = document.getElementById("result-filter-venue");
+        const confidence = document.getElementById("result-filter-confidence");
+        const type = document.getElementById("result-filter-type");
+        const judgment = document.getElementById("result-filter-judgment");
+        const duplicate = document.getElementById("result-filter-duplicate");
+        const returned = document.getElementById("result-filter-return");
+        const rows = Array.from(table.querySelectorAll("tbody tr"));
+        const apply = () => {{
+          rows.forEach((row) => {{
+            const show =
+              (!venue.value || row.dataset.venue === venue.value) &&
+              (!confidence.value || (row.dataset.confidence || "").includes(confidence.value)) &&
+              (!type.value || (row.dataset.type || "").includes(type.value)) &&
+              (!judgment.value || (row.dataset.judgment || "").includes(judgment.value)) &&
+              (!duplicate.value || row.dataset.duplicate === duplicate.value) &&
+              (!returned.value || row.dataset.return === returned.value);
+            row.hidden = !show;
+          }});
+        }};
+        [venue, confidence, type, judgment, duplicate, returned].forEach((item) => item.addEventListener("change", apply));
+      }})();
+      </script>
+    """, "会場・R順で、各レースの結果と5タイプの買い目を横並びで比較できます。")
+
     body += section("日別 予想タイプ別成績", table(
         ["予想タイプ", "予想数", "完全的中", "完全的中率", "1着的中率", "3着内一致平均", "投資額", "払戻額", "回収率"],
         format_stats(daily_rows),
@@ -2661,20 +2828,60 @@ def render_prediction_results(conn) -> str:
         ["prediction_type", "predictions", "exact_hits", "exact_rate", "first_rate", "avg_top3_count", "stake_total", "return_total", "roi"],
     ), "1点100円購入想定です。完全的中時のみ3連単払戻を回収額に入れます。")
 
+    def stats_from_group(label: str, items: list[dict]) -> dict:
+        stake = sum(int(item.get("result_stake_amount") or item.get("stake_amount") or 0) for item in items)
+        returned = sum(int(item.get("return_amount") or 0) for item in items)
+        return {
+            "group": label,
+            "predictions": len(items),
+            "exact_rate": pct(sum(1 for item in items if item.get("hit_exact")) * 100 / len(items) if items else 0),
+            "first_rate": pct(sum(1 for item in items if item.get("hit_1st")) * 100 / len(items) if items else 0),
+            "avg_top3_count": decimal(sum(int(item.get("hit_top3_count") or 0) for item in items) / len(items), 2) if items else "0.00",
+            "stake_total": yen(stake),
+            "return_total": yen(returned),
+            "roi": pct(returned * 100 / stake if stake else 0),
+        }
+
+    confidence_groups = []
+    for confidence in ["A", "B", "C"]:
+        items = [row for row in result_rows if (row.get("confidence") or "C") == confidence]
+        if items:
+            confidence_groups.append(stats_from_group(confidence, items))
+    duplicate_rows = [
+        stats_from_group(label, items)
+        for label, items in duplicate_groups.items()
+        if items
+    ]
+    body += '<div class="grid two">'
+    body += section("信頼度別成績", table(
+        ["信頼度", "予想数", "完全的中率", "1着的中率", "3着内一致平均", "投資額", "払戻額", "回収率"],
+        confidence_groups,
+        ["group", "predictions", "exact_rate", "first_rate", "avg_top3_count", "stake_total", "return_total", "roi"],
+    ))
+    body += section("重複買い目別成績", table(
+        ["重複買い目", "予想数", "完全的中率", "1着的中率", "3着内一致平均", "投資額", "払戻額", "回収率"],
+        duplicate_rows,
+        ["group", "predictions", "exact_rate", "first_rate", "avg_top3_count", "stake_total", "return_total", "roi"],
+    ))
+    body += "</div>"
+
     details = []
-    for row in detail_rows:
-        predicted = prediction_combo(row)
-        actual = prediction_combo({
-            "predicted_1st": row.get("actual_1st"),
-            "predicted_2nd": row.get("actual_2nd"),
-            "predicted_3rd": row.get("actual_3rd"),
-        })
+    for row in sorted(
+        result_rows,
+        key=lambda item: (
+            item.get("race_date") or "",
+            prediction_type_order(item.get("prediction_type") or ""),
+            item.get("venue") or "",
+            int(item.get("race_no") or 0),
+        ),
+        reverse=True,
+    )[:500]:
         details.append({
             "prediction_type": row["prediction_type"],
             "race": f'{row.get("race_date") or ""} {row.get("venue") or ""} {row.get("race_no") or ""}R',
-            "predicted": predicted,
-            "actual": actual,
-            "hit_exact": '<span class="hit">的中</span>' if row["hit_exact"] else '<span class="miss">不的中</span>',
+            "predicted": prediction_combo(row),
+            "actual": actual_combo(row),
+            "judgment": f'<span class="{"hit" if row.get("hit_exact") else "miss"}">{h(prediction_result_label(row))}</span>',
             "hit_1st": "○" if row["hit_1st"] else "×",
             "hit_top3_count": row["hit_top3_count"],
             "payout": yen(row["payout"]),
@@ -2684,7 +2891,7 @@ def render_prediction_results(conn) -> str:
     body += section("予想結果 明細", rich_table(
         ["予想タイプ", "レース", "予想", "結果", "判定", "1着", "3着内一致", "3連単払戻", "回収額", "回収率"],
         details,
-        ["prediction_type", "race", "predicted", "actual", "hit_exact", "hit_1st", "hit_top3_count", "payout", "return_amount", "roi"],
+        ["prediction_type", "race", "predicted", "actual", "judgment", "hit_1st", "hit_top3_count", "payout", "return_amount", "roi"],
     ))
     return page("予想結果", "prediction-results", body)
 
