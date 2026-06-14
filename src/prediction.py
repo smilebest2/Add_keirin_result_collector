@@ -396,7 +396,15 @@ def clear_date_predictions(conn, target_date: str) -> None:
 def clear_analysis_details_if_needed(conn) -> None:
     if is_dev_environment():
         return
-    conn.execute("UPDATE race_prediction SET score_detail_json = NULL WHERE score_detail_json IS NOT NULL")
+    conn.execute(
+        """
+        UPDATE race_prediction
+        SET score_detail_text = NULL,
+            score_detail_json = NULL
+        WHERE score_detail_text IS NOT NULL
+           OR score_detail_json IS NOT NULL
+        """
+    )
 
 
 def generate_predictions(conn, target_date: str) -> int:
@@ -427,7 +435,7 @@ def generate_predictions(conn, target_date: str) -> int:
                 "score": score_value,
                 "confidence": confidence(score_value, has_same_venue_yesterday),
                 "reason": reason,
-                "detail": detail,
+                "detail": detail if include_analysis_detail else "",
                 "detail_json": detail_json if include_analysis_detail else "",
             })
         candidates.sort(key=lambda row: row["score"], reverse=True)
