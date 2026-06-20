@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import DATA_DIR, DB_PATH
+from .lineup_validation import lineup_groups, normalize_lineup
 
 
 SCHEMA = """
@@ -26,6 +27,7 @@ CREATE TABLE IF NOT EXISTS race_master (
     wind_speed REAL,
     lineup_text TEXT,
     race_comment TEXT,
+    dead_heat INTEGER DEFAULT 0,
     detail_url TEXT,
     created_at TEXT
 );
@@ -144,6 +146,10 @@ CREATE TABLE IF NOT EXISTS race_prediction_result (
     actual_1st INTEGER,
     actual_2nd INTEGER,
     actual_3rd INTEGER,
+    actual_1st_candidates TEXT,
+    actual_2nd_candidates TEXT,
+    actual_3rd_candidates TEXT,
+    dead_heat INTEGER DEFAULT 0,
     hit_exact INTEGER,
     hit_1st INTEGER,
     hit_top2 INTEGER,
@@ -154,6 +160,33 @@ CREATE TABLE IF NOT EXISTS race_prediction_result (
     roi REAL,
     checked_at TEXT,
     FOREIGN KEY (prediction_id) REFERENCES race_prediction(id)
+);
+
+CREATE TABLE IF NOT EXISTS race_prediction_bet (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prediction_id INTEGER,
+    race_id TEXT,
+    race_date TEXT,
+    prediction_type TEXT,
+    bet_type TEXT,
+    combination TEXT,
+    stake_amount INTEGER DEFAULT 100,
+    created_at TEXT,
+    UNIQUE (prediction_id, bet_type, combination),
+    FOREIGN KEY (prediction_id) REFERENCES race_prediction(id)
+);
+
+CREATE TABLE IF NOT EXISTS race_prediction_bet_result (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    prediction_bet_id INTEGER UNIQUE,
+    race_id TEXT,
+    hit INTEGER,
+    payout INTEGER,
+    stake_amount INTEGER,
+    return_amount INTEGER,
+    roi REAL,
+    checked_at TEXT,
+    FOREIGN KEY (prediction_bet_id) REFERENCES race_prediction_bet(id)
 );
 
 CREATE TABLE IF NOT EXISTS race_line_features (
@@ -257,8 +290,21 @@ def init_db(conn: sqlite3.Connection) -> None:
         "wind_speed": "REAL",
         "lineup_text": "TEXT",
         "race_comment": "TEXT",
+        "dead_heat": "INTEGER DEFAULT 0",
     }.items():
         ensure_column(conn, "race_master", column, column_type)
+    conn.execute(
+        """
+        UPDATE race_master
+        SET dead_heat = CASE WHEN EXISTS (
+            SELECT 1
+            FROM race_result r
+            WHERE r.race_id = race_master.race_id
+            GROUP BY r.rank
+            HAVING COUNT(*) > 1
+        ) THEN 1 ELSE 0 END
+        """
+    )
     for column, column_type in {
         "term": "INTEGER",
         "margin": "TEXT",
@@ -281,8 +327,27 @@ def init_db(conn: sqlite3.Connection) -> None:
         "score_detail_text": "TEXT",
         "score_detail_json": "TEXT",
         "model_version": "TEXT",
+        "sample_kind": "TEXT DEFAULT 'live'",
     }.items():
         ensure_column(conn, "race_prediction", column, column_type)
+    for column, column_type in {
+        "actual_1st_candidates": "TEXT",
+        "actual_2nd_candidates": "TEXT",
+        "actual_3rd_candidates": "TEXT",
+        "dead_heat": "INTEGER DEFAULT 0",
+    }.items():
+        ensure_column(conn, "race_prediction_result", column, column_type)
+    conn.execute(
+        """
+        UPDATE race_prediction
+        SET sample_kind = 'reference'
+        WHERE DATE(created_at) > race_date
+          AND COALESCE(sample_kind, 'live') = 'live'
+        """
+    )
+    conn.execute(
+        "UPDATE race_prediction SET sample_kind = 'live' WHERE sample_kind IS NULL OR sample_kind = ''"
+    )
     conn.commit()
 
 
@@ -310,9 +375,9 @@ def save_race(conn: sqlite3.Connection, race: dict, results: list[dict], payouts
                     race_id, race_date, venue, race_no, event_name, race_title,
                     race_class, start_time, deadline_time, status, distance,
                     laps, weather, temperature, wind_direction, wind_speed,
-                    lineup_text, race_comment, detail_url, created_at
+                    lineup_text, race_comment, dead_heat, detail_url, created_at
                 )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 race["race_id"],
@@ -333,6 +398,8 @@ def save_race(conn: sqlite3.Connection, race: dict, results: list[dict], payouts
                 race.get("wind_speed"),
                 race.get("lineup_text"),
                 race.get("race_comment"),
+                1 if len([item["rank"] for item in results if item.get("rank") is not None])
+                != len({item["rank"] for item in results if item.get("rank") is not None}) else 0,
                 race["detail_url"],
                 now,
             ),
@@ -410,6 +477,20 @@ def save_race(conn: sqlite3.Connection, race: dict, results: list[dict], payouts
 
 def save_schedule(conn: sqlite3.Connection, race: dict, entries: list[dict]) -> None:
     now = datetime.now().isoformat(timespec="seconds")
+    entry_car_nos = {
+        int(item["car_no"])
+        for item in entries
+        if item.get("car_no") is not None
+    }
+    lineup = normalize_lineup(race.get("lineup", []), entry_car_nos)
+    lineup_text = (
+        " / ".join(
+            " ".join(str(item["car_no"]) for item in group)
+            for group in lineup_groups(lineup)
+        )
+        if lineup
+        else None
+    )
     try:
         conn.execute(
             """
@@ -439,7 +520,7 @@ def save_schedule(conn: sqlite3.Connection, race: dict, entries: list[dict]) -> 
                 race.get("temperature"),
                 race.get("wind_direction"),
                 race.get("wind_speed"),
-                race.get("lineup_text"),
+                lineup_text,
                 race["detail_url"],
                 now,
             ),
@@ -489,7 +570,7 @@ def save_schedule(conn: sqlite3.Connection, race: dict, entries: list[dict]) -> 
                     item.get("line_no"),
                     item.get("line_position"),
                 )
-                for item in race.get("lineup", [])
+                for item in lineup
             ],
         )
         conn.commit()
